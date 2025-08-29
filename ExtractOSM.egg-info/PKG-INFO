@@ -1,0 +1,203 @@
+Metadata-Version: 2.4
+Name: ExtractOSM
+Version: 0.1
+Summary: Extract nodes from an OSM file
+Author: corb
+Project-URL: Repository, https://github.com/corb555/ExtractOSM
+Keywords: OSM,GIS
+Classifier: Intended Audience :: End Users/Desktop
+Classifier: Topic :: Scientific/Engineering :: GIS
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 3.9
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+
+# ExtractOSM
+
+## Overview
+
+**ExtractOSM** is a preprocessing utility for transforming OpenStreetMap (OSM) data into structured tabular
+form for use in classification, scoring, or GIS analysis pipelines. It extracts relevant information from
+OSM nodes, filters them based on configurable tag rules, and enriches the output with additional attributes
+when available. The result is a clean, consistent CSV file that serves as input to downstream tools such
+as machine learning models or geospatial databases.
+
+ExtractOSM is designed for flexibility, supporting customizable field extraction, tag normalization,
+enrichment merging, and tag significance filtering—all controlled through YAML configuration. It is
+optimized for high-performance filtering using `osmium`, allowing efficient extraction from large OSM datasets.
+
+---
+
+## 🟢 Features
+
+* Extracts a set of core **fields**
+* Extracts user-configured **fields** defined in a config file.
+* Computes additional **derived fields** (e.g., `tag_count`, `has_name`).
+* Supports enrichment with additional data from external CSVs.
+* Supports optional data normalization.
+* Efficient OSM filtering using `osmium` for fast extraction.
+* Outputs a CSV file for machine learning or inspection.
+
+---
+
+## 🔍 Details
+
+### Core Fields
+
+These are always included in the output:
+
+* `node_id` — Unique ID of the OSM node.
+* `item_name` — Value of the `name` tag, if present.
+* `lat`, `lon` — Geographic coordinates of the node.
+* `osm_category` — Label applied during extraction based on tag filters.
+* `base_score` — Extracted from the tag specified by `score_key` in the YAML config.
+
+### Configured Fields
+
+Additional **fields** are specified in the `features` section of the YAML config. Each includes a `mode` which
+determines how its value is interpreted:
+
+* **`feature_value`** — Parse the tag value as a numeric `float`.
+* **`absolute`** — Record `1.0` if the tag is present, `0.0` otherwise.
+* **`score`** — Alias for `absolute`; included for clarity in later scoring stages.
+
+If a tag is missing or invalid, its feature value defaults to `0.0`.
+
+.. note::
+`mode` also affects how the feature contributes to the scoring process in later pipeline stages.
+
+### Derived Fields
+
+These are computed automatically:
+
+* `has_name` — `1.0` if the node has a `name` tag; otherwise `0.0`.
+* `tag_count` — Count of **significant tags** after applying filtering rules in `ignore_tags.yml`:
+
+  | Rule       | Description                                                            |
+      |------------| ---------------------------------------------------------------------- |
+  | `0`        | Tag is excluded from the count entirely.                               |
+  | `group`    | Tags with a common prefix (e.g., `addr:*`) are counted once per group. |
+  | *Unlisted* | Tags not in the file are counted individually by default.              |
+
+### Enrichment
+
+CSV-based enrichment files can be loaded at runtime and merged into each node’s record. Each enrichment file
+must contain a node_id column and any number of additional attributes. These attributes are appended as new
+columns during feature extraction. Multiple enrichment sources may be loaded and merged sequentially.
+
+### Data Normalization
+
+Optionally:
+
+* Normalizes imperial distances (e.g., `ft`) to meters.
+* Normalizes durations (e.g., `hours`) to minutes.
+* Applies regex substitutions defined in `config/text_substitutions.yml`.
+
+### Filtering
+
+Tag filtering is defined in a YAML file (e.g., *_classification.yml) and passed to osmium to limit the input
+data. Each tag key is associated with a set of accepted values. Only nodes matching at least one of the configured
+filters are retained. This speeds up processing by excluding irrelevant features early in the pipeline.
+
+### Output
+
+The output is a single CSV file written to the data/raw/ directory, named using the following pattern:
+<region>_<data_type>_features.csv
+Each row corresponds to one OSM node. Columns include static fields, derived fields, configured features,
+and enrichment attributes.
+
+---
+
+## ▶️ Usage
+
+Run `ExtractOSM` from the command line to extract filtered and enriched node data from an OSM file.
+
+```bash
+python ExtractOSM.py <region> <data_type> [input_dir] [output_dir] [options]
+```
+
+### Required Arguments
+
+* `<region>` — Region name (e.g., `utah`, `uswest`)
+* `<data_type>` — Data type or feature category (e.g., `peaks`, `geysers`, `cities`, `parks`)
+
+📌 **Why both?**
+The `region` specifies the geographic area of the OSM input file, while the `data_type` determines the processing
+rules. This separation allows you to reuse the same `data_type` logic across multiple geographic regions, using
+different input files but shared configuration.
+
+It also standardizes input, output, and configuration file naming across the pipeline, enabling seamless integration
+with downstream steps like machine learning scoring, tier classification, OSM-to-GIS ingestion, etc.
+
+### Optional Arguments
+
+* `input_dir` — Input directory for OSM files (default: `data/external`)
+* `output_dir` — Directory where the output CSV will be saved (default: `data/raw`)
+* `-l`, `--log_level` — Log level:
+
+    * `0`: quiet
+    * `1`: info
+    * `2`: debug
+* `-d`, `--debug` — Comma-separated list of node IDs to debug during extraction
+
+### Example
+
+```bash
+python ExtractOSM.py utah parks -l 2
+```
+
+This reads `data/external/utah_parks.osm` (see below), applies configuration from `config/parks_classification.yml`,
+and writes a cleaned CSV to `data/raw/utah_parks_features.csv`.
+
+ExtractOSM will try to find a valid OSM filename in the following order:
+
+    1. {region}_{data_type}.osm
+    2. {region}.osm
+    3. {region}_{data_type}.osm.pbf
+    4. {region}.osm.pbf
+
+---
+
+## Sample Files
+
+### YAML Configuration (`config/poi_classification.yml`)
+
+```yaml
+keys:
+  leisure:
+    filters:
+      - fitness_centre
+  amenity:
+    filters:
+      - fast_food
+      - ice_cream
+score_key: "ele"
+features:
+  - wikipedia: { mode: absolute }
+  - heritage: { mode: absolute }
+  - fee: { mode: absolute }
+```
+
+### Ignore Tags (`config/ignore_tags.yml`)
+
+```yaml
+addr:*: group
+building: 0
+source: 0
+```
+
+* `0`: completely excluded from tag counting
+* `group`: all tags with this prefix count as one (e.g., `addr:*`)
+* Tags not listed are counted individually by default
+
+### Enrichment File (`data/external/parks_extra.csv`)
+
+```csv
+node_id,visitor_count,heritage_rank
+123456,8000,1
+987654,12000,2
+```
+
+Each row adds supplemental data to the matching OSM `node_id`. In this example it adds  visitor
+counts and heritage rank which can be useful in scoring park importance.

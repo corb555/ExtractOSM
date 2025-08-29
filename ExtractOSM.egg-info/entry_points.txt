@@ -1,0 +1,2 @@
+[console_scripts]
+ExtractOSM = ExtractOSM.ExtractOsm:main

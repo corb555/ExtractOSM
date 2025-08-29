@@ -1,0 +1,10 @@
+pyproject.toml
+./ExtractOSM/ExtractOsm.py
+./ExtractOSM/osm_collection.py
+./ExtractOSM/osm_data.py
+ExtractOSM.egg-info/PKG-INFO
+ExtractOSM.egg-info/SOURCES.txt
+ExtractOSM.egg-info/dependency_links.txt
+ExtractOSM.egg-info/entry_points.txt
+ExtractOSM.egg-info/top_level.txt
+docs/readme.md
