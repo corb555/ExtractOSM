@@ -1,2 +1,8 @@
 [console_scripts]
-ExtractOSM = ExtractOSM.ExtractOsm:main
+calc-latlon = ExtractOSM.calc_latlon:main
+enrich-features = ExtractOSM.enrich_features:main
+extract-health-ratings = ExtractOSM.extract_health_ratings:main
+extract-osm = ExtractOSM.run_extract_osm:main
+geo-fuzzy-match = ExtractOSM.geo_fuzzy_match:main
+get-wikipedia = ExtractOSM.wikipedia_length:main
+publish-osm = ExtractOSM.publish_osm:main

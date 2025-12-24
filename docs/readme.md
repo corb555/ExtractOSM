@@ -1,33 +1,18 @@
-Metadata-Version: 2.4
-Name: extract-osm
-Version: 1.1
-Summary: Extract nodes from an OSM file
-Author: corb
-Project-URL: Repository, https://github.com/corb555/ExtractOSM
-Keywords: OSM,GIS
-Classifier: Intended Audience :: End Users/Desktop
-Classifier: Topic :: Scientific/Engineering :: GIS
-Classifier: License :: OSI Approved :: MIT License
-Classifier: Programming Language :: Python
-Classifier: Programming Language :: Python :: 3.9
-Requires-Python: >=3.9
-Description-Content-Type: text/markdown
-License-File: LICENSE
-Dynamic: license-file
+
+
 
 # ExtractOSM
 
 ## Overview
 
-**ExtractOSM** is a utility that transforms OpenStreetMap (OSM) data into a 
-tabular format suitable for downstream analysis, including machine learning, ranking, and geospatial processing. It
+**ExtractOSM** is a utility that performs a filtered extract of OpenStreetMap (OSM) data into a 
+ CSV file. It
 filters
-OSM nodes based on category, extracts specified fields, optionally normalizes values, and enriches the output with
+OSM nodes based on supplied categories, extracts specified fields, optionally normalizes text, and can enrich the output with
 additional attributes.
 The result is a dataset for:
 
 * Training and applying classification or regression models
-* Generating importance scores 
 * Feeding structured inputs into GIS platforms or PostGIS databases
 ---
 
@@ -35,17 +20,17 @@ The result is a dataset for:
 
 * Filters user-specified OSM categories using `osmium` for high-performance extraction.
 * Extracts a fixed set of **core fields** (e.g., `osm_id`, `item_name`, `lat`, `lon`).
-* Extracts a configurable set of **feature fields** from tag keys with two modes:
-
+* Extracts a configurable set of **feature fields** from tag keys with these modes:
     * Numeric parsing
-    * Binary presence indicators
+    * Binary presence indicator
 * Computes additional **derived fields**:
-
     * `tag_count` — the number of _significant_ tags after applying tag filter rules
-* Applies optional **data normalization** using regex-based substitutions from YAML configuration.
+* Optionally applies  **text normalization** using regex-based substitutions from YAML configuration.
 * Optionally standardizes units for fields such as distance.  This will convert fields tagged as "ft", etc. to meters.
-* Supports integration of **external enrichment data** via CSV files keyed by `osm_id`.
+* Supports creating loading **external enrichment data** via CSV files keyed by `osm_id`.
 * Outputs a structured **CSV file** for use in machine learning pipelines, PostGIS, or statistical tools.
+* Includes an optional tool for finding the wikipedia length of articles for each item
+* Includes an optional tool for calculating lat/lon and area for polygons in an OSM file
 
 ---
 
@@ -53,7 +38,7 @@ The result is a dataset for:
 
 ### Core Fields
 
-These fields are always included in the output:
+Core fields are always included in the output:
 
 * `osm_id` — Unique identifier of the OSM node.
 * `item_name` — Value of the `name` tag, if present.
@@ -65,10 +50,10 @@ These fields are always included in the output:
 ### Configured Fields
 
 Additional fields beyond the core fields are defined in the `features` section of the YAML config. Each field uses a **mode** to
-determine how its value is extracted:
+determine how its value is extracted and placed in the output CSV.
 
 * **`value`** — Interpret the tag value as a numeric `float`.
-* **`presence`** — Encodes **binary presence** of the tag as `1.0` if present, otherwise `0.0`. This acts as a
+* **`presence`** — Encodes **presence** of the tag as `1.0` if present, otherwise `0.0`. This acts as a
   **binary indicator variable** (one-hot feature).
 * **`score`** — Behaves identically to `presence` during extraction, but may be treated differently in downstream
   workflows.
@@ -158,8 +143,6 @@ extract-osm --input x --config x --substitutions x --ignore-tags x --enrichment-
 
 ###  Arguments
 
-
-
 * `-l`, `--log_level` — Log level:
 
     * `0`: quiet
@@ -229,7 +212,3 @@ substitutions:
 This file provides regex to apply to tag values for cleanup.
 It also includes a flag, `convert_units`. If this is set to `1` then distances will be converted to meters
 and time will be converted to minutes. E.g "12 ft" will be converted to 3.6576.  
-
-
-
-

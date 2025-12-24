@@ -1,19 +1,15 @@
 import pytest
 
-from ExtractOSM.fuzzy_merge import clean_text, NOISE_WORDS, match_score
 
-MAX_DISTANCE_METERS = 100
-DISTANCE_WEIGHT = 0.6
-TOLERANCE_PCT = 0.10  # 10%
 @pytest.mark.parametrize(
-    "name1, name2, dist, expected_score, expected_text",
+    "name1, name2, dist, expected_score, expected_text_score",
     [
-        # Test lexical matching (small distance)
+        # Test lexical matching with small distance
         ("Grand Canyon", "Grand Canyon", 0, 100, 100), # Perfect match, zero distance
         ("Upper Falls", "Falls", 0, 81, 81), # Match with noise words removed
         ("Yosemite Park", "Yosemite National Park", 10, 74, 74), # Mismatch, but similar words
 
-        # Test with larger distance
+        # Tests with larger distance
         ("Old Faithful", "Faithful Geyser", 90, 40, 64), # Distant match should reduce the final score
         ("Zion", "Bryce Canyon", 100, 0, 25), # Distant and not very similar
         ("El Capitan", "El Capitan", 150, 70, 100),  # Distance beyond max – should clamp

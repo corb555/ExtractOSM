@@ -1,4 +1,7 @@
+LICENSE
 pyproject.toml
+./ExtractOSM/calc_latlon.py
+./ExtractOSM/classification_schema.py
 ./ExtractOSM/enrichment_manager.py
 ./ExtractOSM/extract_osm.py
 ./ExtractOSM/fuzzy_merge.py
@@ -10,12 +13,15 @@ pyproject.toml
 ./ExtractOSM/significant_tag_counter.py
 ./ExtractOSM/text_substitution.py
 ./ExtractOSM/yaml_config.py
+ExtractOSM/calc_latlon.py
+ExtractOSM/classification_schema.py
 ExtractOSM/enrichment_manager.py
 ExtractOSM/extract_osm.py
 ExtractOSM/fuzzy_merge.py
 ExtractOSM/normalize_units.py
 ExtractOSM/osm_data.py
 ExtractOSM/osm_handler.py
+ExtractOSM/publish_osm.py
 ExtractOSM/run_extract_osm.py
 ExtractOSM/significant_tag_counter.py
 ExtractOSM/text_substitution.py

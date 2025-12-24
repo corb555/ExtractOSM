@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ExtractOSM"
+version = "1.2.1"
+description = "Extract nodes from an OSM file"
+authors = [{ name = "corb" }]
+readme = "docs/readme.md"
+requires-python = ">=3.9"
+dependencies = [
+]
+keywords = ["OSM", "GIS", ]
+classifiers = [
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Scientific/Engineering :: GIS",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.9",
+]
+
+[project.scripts]
+# Allow apps to be directly launched
+extract-osm = "ExtractOSM.run_extract_osm:main"
+publish-osm = "ExtractOSM.publish_osm:main"
+calc-latlon = "ExtractOSM.calc_latlon:main"
+get-wikipedia = "ExtractOSM.wikipedia_length:main"
+geo-fuzzy-match = "ExtractOSM.geo_fuzzy_match:main"
+
+
+[tool.setuptools]
+# include the  directory as a package in the distribution.
+packages = ["ExtractOSM"]
+
+
+[tool.setuptools.package-dir]
+# The ExtractOSM package is located in the root of the project
+# directory (i.e., not inside a src/ or lib/ directory)
+"" = "."
+
+[project.urls]
+Repository = "https://github.com/corb555/ExtractOSM"
+
+[tool.setuptools.package-data]
+# Include all resources files in resources directory
+# To access from python:
+#    import importlib.resources as pkg_resources
+#    from . import resources
+#    with pkg_resources.open_text(resources, filename) as f:
+#       resource_data = f.read()
+ExtractOSM = ["resources/*"]

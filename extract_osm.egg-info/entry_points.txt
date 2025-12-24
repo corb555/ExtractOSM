@@ -1,3 +1,4 @@
 [console_scripts]
+calc-latlon = ExtractOSM.calc_latlon:main
 extract-osm = ExtractOSM.run_extract_osm:main
 publish-osm = ExtractOSM.publish_osm:main
