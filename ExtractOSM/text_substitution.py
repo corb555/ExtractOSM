@@ -8,7 +8,9 @@ class TextSubstitutions:
     def __init__(self, yaml_path:Path, log_level):
         self.substitutions = {}
         self.convert_units = False
-        self._load_config(yaml_path, log_level)
+        self.yaml_path = yaml_path
+        if self.yaml_path:
+            self._load_config(yaml_path, log_level)
 
     def _load_config(self, yaml_path: Path, log_level):
         try:
@@ -28,7 +30,7 @@ class TextSubstitutions:
         self.convert_units = bool(data.get("convert_units", False))
 
     def substitute(self, val: str) -> str:
-        if not isinstance(val, str):
+        if not isinstance(val, str) or not self.yaml_path:
             return val
 
         val = val.strip().lower()

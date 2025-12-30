@@ -15,8 +15,8 @@ from typing import Dict, Any, List
 
 import pandas as pd
 
-from ExtractOSM.yaml_config import read_config # Re-use your config reader
-from ExtractOSM.classification_schema import CLASSIFICATION_SCHEMA # And schema
+from ExtractOSM.yaml_config import read_config
+from ExtractOSM.classification_schema import CLASSIFICATION_SCHEMA
 
 def main() -> None:
     """Parses arguments, loads data, and performs the enrichment merge."""

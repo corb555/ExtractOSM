@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ExtractOSM
-Version: 1.2
+Version: 1.3.1
 Summary: Extract nodes from an OSM file
 Author: corb
 Project-URL: Repository, https://github.com/corb555/ExtractOSM
@@ -23,7 +23,7 @@ Dynamic: license-file
 ## Overview
 
 **ExtractOSM** is a utility that performs a filtered extract of OpenStreetMap (OSM) data into a 
-tabular CSV file suitable for downstream analysis. It
+ CSV file. It
 filters
 OSM nodes based on supplied categories, extracts specified fields, optionally normalizes text, and can enrich the output with
 additional attributes.
@@ -44,8 +44,10 @@ The result is a dataset for:
     * `tag_count` — the number of _significant_ tags after applying tag filter rules
 * Optionally applies  **text normalization** using regex-based substitutions from YAML configuration.
 * Optionally standardizes units for fields such as distance.  This will convert fields tagged as "ft", etc. to meters.
-* Supports loading **external enrichment data** via CSV files keyed by `osm_id`.
+* Supports creating loading **external enrichment data** via CSV files keyed by `osm_id`.
 * Outputs a structured **CSV file** for use in machine learning pipelines, PostGIS, or statistical tools.
+* Includes an optional tool for finding the wikipedia length of articles for each item
+* Includes an optional tool for calculating lat/lon and area for polygons in an OSM file
 
 ---
 

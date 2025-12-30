@@ -49,7 +49,7 @@ class ExtractOsm:
     def extract_nodes(self) -> None:
         """Parses the OSM file and extracts node features."""
         osm_handler = OSMHandler(self.osm_data, self.configuration)
-        self.osm_data.log_msg(f"➡️ Reading OSM {self.file_paths['osm_path']}")
+        self.osm_data.log_msg(f"\n➡️ Reading OSM {self.file_paths['osm_path']}")
         osm_handler.apply_file(str(self.file_paths['osm_path']), locations=True)
 
     def output_nodes(self) -> None:

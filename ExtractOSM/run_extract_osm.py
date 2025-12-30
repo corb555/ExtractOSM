@@ -19,10 +19,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Extract base features from an OSM file to a CSV."
     )
-    # --- REFACTOR: Removed enrichment-dir and segment arguments ---
     parser.add_argument("--input", required=True, type=Path, help="Path to the input OSM file (.osm or .pbf).")
     parser.add_argument("--config", required=True, type=Path, help="Path to the extraction configuration YAML file.")
-    parser.add_argument("--substitutions", required=True, type=Path, help="Path to the substitutions YAML file.")
+    parser.add_argument("--substitutions", required=False, type=Path, help="Path to the substitutions YAML file.")
     parser.add_argument("--ignore-tags", dest="ignore_tags", required=True, type=Path, help="Path to the ignore_tags YAML file.")
     parser.add_argument("--output", required=True, type=Path, help="Path for the output CSV file.")
     parser.add_argument("--log-level", "-l", dest="log_level", type=int, choices=range(0, 6), default=5, help="Set log level.")
@@ -39,10 +38,8 @@ def main() -> None:
     try:
         configuration = read_config(file_paths["config_path"], CLASSIFICATION_SCHEMA)
     except Exception as e:
-        print(f"❌ Error reading configuration file '{file_paths['config_path']}': {e}")
+        print(f"\n❌ Error reading configuration file '{file_paths['config_path']}'\n {e}\n")
         sys.exit(1)
-
-    # --- REFACTOR: Enrichment logic is completely removed ---
 
     try:
         output_path = file_paths["output_path"]
@@ -55,7 +52,7 @@ def main() -> None:
         )
         extractor.run()
     except Exception as e:
-        print(f"❌ An error occurred during extraction: {e}")
+        print(f"\n❌ An error occurred reading file:\n❌ {e}\n")
         sys.exit(1)
 
 if __name__ == "__main__":

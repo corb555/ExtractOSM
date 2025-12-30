@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ExtractOSM"
-version = "1.2.1"
+version = "1.3.2"
 description = "Extract nodes from an OSM file"
 authors = [{ name = "corb" }]
 readme = "docs/readme.md"
@@ -25,9 +25,9 @@ classifiers = [
 extract-osm = "ExtractOSM.run_extract_osm:main"
 publish-osm = "ExtractOSM.publish_osm:main"
 calc-latlon = "ExtractOSM.calc_latlon:main"
-get-wikipedia = "ExtractOSM.wikipedia_length:main"
+get-wikipedia = "ExtractOSM.wikipedia_props:main"
 geo-fuzzy-match = "ExtractOSM.geo_fuzzy_match:main"
-
+enrich-features = "ExtractOSM.enrich_features:main"
 
 [tool.setuptools]
 # include the  directory as a package in the distribution.

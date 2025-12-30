@@ -65,7 +65,7 @@ def main():
         configuration = loader.read(args.config)
         print("✅ Configuration loaded successfully.")
     except (FileNotFoundError, ValueError) as e:
-        sys.exit(f"❌ Configuration error: {e}")
+        sys.exit(f"\n❌ Configuration error: {e}\n")
 
     filter_map = {
         key: set(subconf.get("filters", []))
@@ -73,7 +73,7 @@ def main():
     }
     print_filters(filter_map)
 
-    # MODIFIED: Pass the filters directly to the GeoJSON creation step.
+    # Pass the filters directly to the GeoJSON creation step.
     if not create_filtered_geojson(geojson_path, args.osm_file, filter_map):
         sys.exit(1)
 
@@ -81,7 +81,7 @@ def main():
 
     print("➡️ Calculating lat/lon from filtered GeoJSON stream...")
     try:
-        # MODIFIED: Process the file as a true stream, without loading into memory.
+        # Process the file as a true stream, without loading into memory.
         with open(args.output, mode="w", newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(["name", "osm_id", "lat", "lon", "area"])
@@ -115,9 +115,9 @@ def main():
         print(f"\n✅ CSV export complete: {args.output}")
 
     except FileNotFoundError:
-        sys.exit(f"❌ Error: GeoJSON file not found at '{geojson_path}'.")
+        sys.exit(f"\n❌ Error: GeoJSON file not found at '{geojson_path}'.\n")
     except (ijson.JSONError, ValueError) as e:
-        sys.exit(f"❌ Error processing GeoJSON stream: {e}")
+        sys.exit(f"\n❌ Error processing GeoJSON stream: {e}\n")
 
 
 def create_filtered_geojson(geojson_path: Path, osm_path: Path, filter_map: dict) -> bool:
@@ -145,7 +145,7 @@ def create_filtered_geojson(geojson_path: Path, osm_path: Path, filter_map: dict
     print(f"🔄 Stale or missing GeoJSON.\n➡️ Generating filtered GeoJSON from {osm_path}...")
 
     # --- Build a list of separate filter expressions ---
-    # The format is now ["w/key=v1,v2", "r/key=v1,v2", "w/key2=v3", "r/key2=v3"]
+    # The format is  ["w/key=v1,v2", "r/key=v1,v2", "w/key2=v3", "r/key2=v3"]
     osmium_filters = []
     for key, values in filter_map.items():
         if values:
@@ -185,7 +185,7 @@ def create_filtered_geojson(geojson_path: Path, osm_path: Path, filter_map: dict
         print(f"✅ Filtered GeoJSON export complete: {geojson_path}")
         return True
     except FileNotFoundError:
-        print("❌ Error: 'osmium' command not found. Please ensure it is installed and in your system's PATH.")
+        print("\n❌ Error: 'osmium' command not found. Please ensure it is installed and in your system's PATH.\n")
         return False
     except subprocess.CalledProcessError as e:
         # Re-check which command failed to provide a more specific error.
@@ -195,14 +195,14 @@ def create_filtered_geojson(geojson_path: Path, osm_path: Path, filter_map: dict
         elif "export" in e.args:
             failed_command = "export"
         else:
-            failed_command = "unknown"
-        print(f"❌ Error running osmium '{failed_command}': {e}\n   Osmium stderr: {e.stderr.strip()}")
+            failed_command = " "
+        print(f"\n❌ Error running osmium '{failed_command}': {e}\n   ❌ Osmium stderr: {e.stderr.strip()}\n")
         return False
     finally:
         if intermediate_pbf_path.exists():
             intermediate_pbf_path.unlink()
 
-# --- Utility functions (largely unchanged) ---
+# --- Utility functions  ---
 def compute_area_centroid(geometry):
     if not geometry.is_valid:
         geometry = geometry.buffer(0)
@@ -215,7 +215,6 @@ def compute_area_centroid(geometry):
     return area, centroid
 
 def get_osm_id(osmium_id):
-    # ... (This function is correct for osmium's unique ID format, no changes needed)
     if not osmium_id:
         raise ValueError("Missing or empty Osmium ID")
     osmium_id = str(osmium_id)

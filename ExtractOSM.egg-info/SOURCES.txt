@@ -20,11 +20,12 @@ pyproject.toml
 ./ExtractOSM/significant_tag_counter.py
 ./ExtractOSM/text_similarity.py
 ./ExtractOSM/text_substitution.py
-./ExtractOSM/wikipedia_length.py
+./ExtractOSM/wikipedia_props.py
 ./ExtractOSM/yaml_config.py
 ExtractOSM/calc_latlon.py
 ExtractOSM/classification_schema.py
 ExtractOSM/compare_rankings.py
+ExtractOSM/elevation_fuzzy_match.py
 ExtractOSM/enrich_features.py
 ExtractOSM/enrichment_manager.py
 ExtractOSM/extract_health_ratings.py
@@ -41,7 +42,7 @@ ExtractOSM/run_extract_osm.py
 ExtractOSM/significant_tag_counter.py
 ExtractOSM/text_similarity.py
 ExtractOSM/text_substitution.py
-ExtractOSM/wikipedia_length.py
+ExtractOSM/wikipedia_props.py
 ExtractOSM/yaml_config.py
 ExtractOSM.egg-info/PKG-INFO
 ExtractOSM.egg-info/SOURCES.txt
