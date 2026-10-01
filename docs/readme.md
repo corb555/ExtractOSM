@@ -1,15 +1,21 @@
 
-
-
 # ExtractOSM
+
+> **THIS PROJECT IS EXPERIMENTAL.**
+>
+> **DO NOT USE IN PRODUCTION.**
+>
+> Features and interfaces are evolving.
+>
+> **Updates will NOT be backward compatible.**
+>
+> **Back up your configuration files before use; bugs may corrupt project files.**
 
 ## Overview
 
 **ExtractOSM** is a utility that performs a filtered extract of OpenStreetMap (OSM) data into a 
- CSV file. It
-filters
-OSM nodes based on supplied categories, extracts specified fields, optionally normalizes text, and can enrich the output with
-additional attributes.
+ CSV file. It filters OSM nodes based on supplied categories, extracts specified fields, optionally normalizes 
+text, and can enrich the output with additional attributes.
 The result is a dataset for:
 
 * Training and applying classification or regression models
@@ -29,7 +35,7 @@ The result is a dataset for:
 * Optionally standardizes units for fields such as distance.  This will convert fields tagged as "ft", etc. to meters.
 * Supports creating loading **external enrichment data** via CSV files keyed by `osm_id`.
 * Outputs a structured **CSV file** for use in machine learning pipelines, PostGIS, or statistical tools.
-* Includes an optional tool for finding the wikipedia length of articles for each item
+* Includes an optional tool for finding the wikipedia length of articles and links for each item
 * Includes an optional tool for calculating lat/lon and area for polygons in an OSM file
 
 ---
@@ -62,7 +68,8 @@ If a tag is missing, malformed, or cannot be converted to a numeric value, the f
 
 #### Data Normalization
 
-OSM data can have inconsistent formatting and units. ExtractOSM can optionally provide some cleanup with the following:
+OSM data can have inconsistent formatting and units. ExtractOSM can optionally provide some cleanup with the 
+following if enabled in text_substitutions.yml:
 
 * Normalize detected imperial distances (e.g., `ft`) to meters.
 * Normalize durations (e.g., `hours`) to minutes.
@@ -79,8 +86,7 @@ These fields are automatically computed based on tag presence and metadata:
 * **`tag_count`** — Count of **significant tags** attached to the node, using the filtering rules defined
   in `ignore_tags.yml`.
 
-`tag_count` can serve as a **proxy for feature richness**. OSM nodes with more tags are
-better described and potentially more important.
+`tag_count` can serve as a **proxy for feature richness**. OSM nodes with more tags can potentially more important.
 
 * A city node with `population`, `wikidata`, `wikipedia`, and `official_name` tags may be more significant than one
 * with only `name`.

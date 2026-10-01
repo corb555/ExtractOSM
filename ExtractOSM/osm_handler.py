@@ -1,7 +1,10 @@
+import logging
+
+from ExtractOSM.osm_data import OSMData
 import osmium
 from osmium import osm, filter as osm_filter
 
-from ExtractOSM.osm_data import OSMData
+LOGGER = logging.getLogger(__name__)
 
 
 class OSMHandler(osmium.SimpleHandler):
@@ -14,7 +17,7 @@ class OSMHandler(osmium.SimpleHandler):
         self.osm_data = osm_data
 
         # Load  filter keys and values
-        self.filter_keys = configuration.get("keys", {})
+        self.filter_keys = configuration.get("osm_filter", {})
         self.feature_weights = configuration.get("features", {})
 
     def node(self, n: osmium.osm.Node):

@@ -1,0 +1,1 @@
+1.4 [FEATURE] wikiprops - Retrieve summary.  Flag "disambiguation" articles

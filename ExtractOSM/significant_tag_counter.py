@@ -19,7 +19,7 @@ class SignificantTagCounter:
             print(f"❌ Error loading tag significance config: {e}")
             return {}
 
-    def count(self, tags, osm_id: str, log_level:int) -> int:
+    def count(self, tags, osm_id: str, log_level: int) -> int:
         count = 0
         seen_groups = set()
 
@@ -29,7 +29,7 @@ class SignificantTagCounter:
 
             if isinstance(behavior, (int, float)):
                 count += behavior
-                #print(node_id, f"'{key}': 0 - Ignored\n")
+                # print(node_id, f"'{key}': 0 - Ignored\n")
                 continue
 
             matched = False
@@ -39,17 +39,16 @@ class SignificantTagCounter:
                     if key.startswith(prefix):
                         if prefix not in seen_groups:
                             seen_groups.add(prefix)
-                            count += 1
-                            #print(node_id, f"'{key}': wildcard '{pattern}' - Counted\n")
-                        #else:
-                            #print(node_id, f"'{key}': wildcard '{pattern}' - Skipped dup group\n")
+                            count += 1  # print(node_id, f"'{key}': wildcard '{pattern}' -
+                            # Counted\n")
+                        # else:
+                        # print(node_id, f"'{key}': wildcard '{pattern}' - Skipped dup group\n")
                         matched = True
                         break
 
             if not matched and behavior is None:
                 self.unmatched_tags.add(key)
-                count += 1
-                #print(node_id, f"'{key}':  Counted\n")
+                count += 1  # print(node_id, f"'{key}':  Counted\n")
 
-        #print(node_id, f"tag count: {count}")
+        # print(node_id, f"tag count: {count}")
         return count

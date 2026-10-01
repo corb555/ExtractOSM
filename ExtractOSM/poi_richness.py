@@ -5,14 +5,13 @@ Quantifies the significance of a place by measuring the density and quality of n
 """
 import argparse
 import logging
-import sys
 from pathlib import Path
+import sys
 
 import geopandas as gpd
+from GeoTier.spatial_index import SpatialIndex
 import pandas as pd
 from tqdm import tqdm
-
-from GeoTier.spatial_index import SpatialIndex
 from YMLEditor.yaml_reader import ConfigLoader
 
 POI_SCHEMA = {
@@ -24,7 +23,10 @@ POI_SCHEMA = {
 SOURCE_CRS = "EPSG:4326"
 PROJECTED_CRS = "EPSG:3857"
 
-def add_pois_to_index(pois_gdf: gpd.GeoDataFrame, spatial_index: SpatialIndex, logger: logging.Logger) -> None:
+
+def add_pois_to_index(
+        pois_gdf: gpd.GeoDataFrame, spatial_index: SpatialIndex, logger: logging.Logger
+        ) -> None:
     """Adds pre-scored POIs from a GeoDataFrame to a spatial index."""
     logger.info(f"➡️ Building spatial index with {len(pois_gdf)} pre-scored POIs...")
     for poi in tqdm(pois_gdf.itertuples(), total=len(pois_gdf), desc="Indexing POIs"):
@@ -35,11 +37,8 @@ def add_pois_to_index(pois_gdf: gpd.GeoDataFrame, spatial_index: SpatialIndex, l
 
 
 def calculate_place_scores(
-        places_gdf: gpd.GeoDataFrame,
-        spatial_index: SpatialIndex,
-        city_radius: float,
-        default_radius: float,
-        logger: logging.Logger
+        places_gdf: gpd.GeoDataFrame, spatial_index: SpatialIndex, city_radius: float,
+        default_radius: float, logger: logging.Logger
 ) -> list:
     """Calculates a distance-decayed POI significance score for each place."""
     logger.info("➡️ Calculating distance-decayed POI scores for each place...")
@@ -84,28 +83,21 @@ def main() -> None:
     processing functions.
     """
     parser = argparse.ArgumentParser(
-        description="Generate POI significance scores for places based on proximity to pre-scored POIs."
-    )
-    parser.add_argument(
-        "--places", type=Path, required=True,
-        help="Path to the input CSV file for places. Must contain 'osm_id', 'lon', 'lat', and 'sub_category' columns."
-    )
-    parser.add_argument(
-        "--pois", type=Path, required=True,
-        help="Path to the input CSV file for POIs. Must contain 'osm_id', 'lon', 'lat', and a 'score' column."
-    )
-    parser.add_argument(
-        "--config", type=Path, required=True,
-        help="Path to the YAML configuration file defining search radiuses."
-    )
-    parser.add_argument(
-        "--output", type=Path, required=True,
-        help="Path to save the output CSV file, which will be the original places file with an added 'poi_score' column."
-    )
-    parser.add_argument(
-        "--log-level", type=int, default=2,
-        help="Set log level (1=DEBUG, 2=INFO, 3=WARNING, 4=ERROR, 5=CRITICAL)."
-    )
+        description="Generate POI significance scores for places based on proximity to pre-scored "
+                    "POIs.")
+    parser.add_argument("--places", type=Path, required=True,
+        help="Path to the input CSV file for places. Must contain 'osm_id', 'lon', 'lat', "
+             "and 'sub_category' columns.")
+    parser.add_argument("--pois", type=Path, required=True,
+        help="Path to the input CSV file for POIs. Must contain 'osm_id', 'lon', 'lat', "
+             "and a 'score' column.")
+    parser.add_argument("--config", type=Path, required=True,
+        help="Path to the YAML configuration file defining search radiuses.")
+    parser.add_argument("--output", type=Path, required=True,
+        help="Path to save the output CSV file, which will be the original places file with an "
+             "added 'poi_score' column.")
+    parser.add_argument("--log-level", type=int, default=2,
+        help="Set log level (1=DEBUG, 2=INFO, 3=WARNING, 4=ERROR, 5=CRITICAL).")
     args = parser.parse_args()
 
     logger = _setup_logger(args.log_level)
@@ -124,8 +116,12 @@ def main() -> None:
         city_radius = config['city_radius_meters']
         default_radius = config['locale_radius_meters']
 
-        logger.info(f"   - City Core Radius (Full Weight):   {city_radius}m Extended Radius (with Decay): {city_radius * 1.5}m")
-        logger.info(f"   - Locale Core Radius (Full Weight): {default_radius}m Extended Radius (with Decay): {default_radius * 1.5}m")
+        logger.info(
+            f"   - City Core Radius (Full Weight):   {city_radius}m Extended Radius (with Dec"
+            f"ay): {city_radius * 1.5}m")
+        logger.info(
+            f"   - Locale Core Radius (Full Weight): {default_radius}m Extended Radius (with "
+            f"Decay): {default_radius * 1.5}m")
 
         places_df = pd.read_csv(args.places, dtype={'osm_id': str})
         pois_df = pd.read_csv(args.pois, dtype={'osm_id': str})
@@ -134,25 +130,30 @@ def main() -> None:
         initial_place_count = len(places_df)
         places_df = places_df[(places_df['lon'] != 0) & (places_df['lat'] != 0)].copy()
         if initial_place_count > len(places_df):
-            logger.warning(f"   - Removed {initial_place_count - len(places_df)} places with null (0,0) coordinates.")
+            logger.warning(
+                f"   - Removed {initial_place_count - len(places_df)} places with null (0,"
+                f"0) coordinates.")
 
         initial_poi_count = len(pois_df)
         pois_df = pois_df[(pois_df['lon'] != 0) & (pois_df['lat'] != 0)].copy()
         if initial_poi_count > len(pois_df):
-            logger.warning(f"   - Removed {initial_poi_count - len(pois_df)} POIs with null (0,0) coordinates.")
+            logger.warning(
+                f"   - Removed {initial_poi_count - len(pois_df)} POIs with null (0,"
+                f"0) coordinates.")
 
         logger.info(f"\n   - Processing {len(places_df)} places and {len(pois_df)} POIs.")
 
         if 'score' not in pois_df.columns:
-            raise ValueError("Input POIs file must contain a 'score' column from an importance model.")
+            raise ValueError(
+                "Input POIs file must contain a 'score' column from an importance model.")
 
         logger.info(f"\n➡️ Projecting coordinates from {SOURCE_CRS} to {PROJECTED_CRS} (meters)...")
-        places_gdf_proj = gpd.GeoDataFrame(
-            places_df, geometry=gpd.points_from_xy(places_df.lon, places_df.lat), crs=SOURCE_CRS
-        ).to_crs(PROJECTED_CRS)
-        pois_gdf_proj = gpd.GeoDataFrame(
-            pois_df, geometry=gpd.points_from_xy(pois_df.lon, pois_df.lat), crs=SOURCE_CRS
-        ).to_crs(PROJECTED_CRS)
+        places_gdf_proj = gpd.GeoDataFrame(places_df,
+            geometry=gpd.points_from_xy(places_df.lon, places_df.lat), crs=SOURCE_CRS).to_crs(
+            PROJECTED_CRS)
+        pois_gdf_proj = gpd.GeoDataFrame(pois_df,
+            geometry=gpd.points_from_xy(pois_df.lon, pois_df.lat), crs=SOURCE_CRS).to_crs(
+            PROJECTED_CRS)
         logger.info("   - Coordinate projection complete.")
 
     except (FileNotFoundError, ValueError, KeyError) as e:
@@ -163,9 +164,8 @@ def main() -> None:
 
     add_pois_to_index(pois_gdf_proj, spatial_index, logger)
 
-    poi_scores = calculate_place_scores(
-        places_gdf_proj, spatial_index, city_radius, default_radius, logger
-    )
+    poi_scores = calculate_place_scores(places_gdf_proj, spatial_index, city_radius, default_radius,
+        logger)
 
     final_df = places_df.copy()
     final_df['poi_score'] = poi_scores
@@ -174,6 +174,7 @@ def main() -> None:
     logger.info(f"\n➡️ Saving {len(final_df)} items with POI scores to {args.output}...")
     final_df.to_csv(args.output, index=False, float_format='%.2f')
     logger.info("✅ POI score generation complete.")
+
 
 def _setup_logger(level: int) -> logging.Logger:
     """Initializes and configures the logger for the script."""
@@ -186,6 +187,7 @@ def _setup_logger(level: int) -> logging.Logger:
         handler.setFormatter(formatter)
         logger.addHandler(handler)
     return logger
+
 
 if __name__ == "__main__":
     main()

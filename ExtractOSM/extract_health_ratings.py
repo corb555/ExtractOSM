@@ -11,28 +11,28 @@ import sys
 
 import pandas as pd
 
+
 def main():
     # Map King county score to a standard score for the Map Pipeline
     grade_to_score_map = {
         1.0: 10,  # Excellent
-        2.0: 0,   # Good
-        3.0: -20, # Needs Improvement
+        2.0: 0,  # Good
+        3.0: -20,  # Needs Improvement
         4.0: -45  # Unsatisfactory
     }
 
     # county_state or city_state
-    agencies = [
-        "king_wa",
-                ]
+    agencies = ["king_wa", ]
 
     INSPECTION_TYPE_COLUMN = "Inspection Type"
     IGNORE_INSPECTION_TYPES = ["Consultation/Education - Field"]
 
     parser = argparse.ArgumentParser(
-        description="Extract the latest graded health inspection for each restaurant."
-    )
-    parser.add_argument("--input", type=Path, required=True, help="Path to the raw health ratings CSV file.")
-    parser.add_argument("--output", type=Path, required=True, help="Path to save the cleaned ratings CSV file.")
+        description="Extract the latest graded health inspection for each restaurant.")
+    parser.add_argument("--input", type=Path, required=True,
+                        help="Path to the raw health ratings CSV file.")
+    parser.add_argument("--output", type=Path, required=True,
+                        help="Path to save the cleaned ratings CSV file.")
     parser.add_argument("--agency", type=str, required=True, help="Source agency for records")
 
     args = parser.parse_args()
@@ -48,12 +48,9 @@ def main():
 
     # Rename columns on load for consistency with the rest of the pipeline
     column_map = {
-        'Name': 'item_name',
-        'Inspection Date': 'inspection_date',
-        'Longitude': 'lon',
-        'Latitude': 'lat',
-        'Grade': 'health_grade', # Use a distinct name for the raw grade
-        INSPECTION_TYPE_COLUMN : INSPECTION_TYPE_COLUMN,
+        'Name': 'item_name', 'Inspection Date': 'inspection_date', 'Longitude': 'lon',
+        'Latitude': 'lat', 'Grade': 'health_grade',  # Use a distinct name for the raw grade
+        INSPECTION_TYPE_COLUMN: INSPECTION_TYPE_COLUMN,
     }
 
     # --- START OF FIX: Add a pre-flight schema validation check ---
@@ -91,7 +88,9 @@ def main():
     keep_mask = ~df[INSPECTION_TYPE_COLUMN].isin(IGNORE_INSPECTION_TYPES)
     df = df[keep_mask].copy()
 
-    print(f"   - Removed {initial_count - len(df)} records with ignored inspection types (e.g., 'Consultation').")
+    print(
+        f"   - Removed {initial_count - len(df)} records with ignored inspection types (e.g., "
+        f"'Consultation').")
     # Drop the now-redundant inspection type column
     df.drop(columns=[INSPECTION_TYPE_COLUMN], inplace=True)
 
@@ -112,12 +111,15 @@ def main():
 
     # Sort by the unique key, then by date descending. This brings the most
     # recent inspection for each unique location to the top of its group.
-    df.sort_values(by=unique_location_key + ['inspection_date'], ascending=[True, True, True, False], inplace=True)
+    df.sort_values(by=unique_location_key + ['inspection_date'],
+                   ascending=[True, True, True, False], inplace=True)
 
     initial_count = len(df)
     # De-duplicate based on the unique location key, keeping the first (most recent) record.
     df.drop_duplicates(subset=unique_location_key, keep='first', inplace=True)
-    print(f"   - Distilled {initial_count} graded records down to {len(df)} unique restaurant locations.")
+    print(
+        f"   - Distilled {initial_count} graded records down to {len(df)} unique restaurant "
+        f"locations.")
 
     # --- Step 4: Transform 'Grade' into a standardized 'health_score' ---
     print("➡️ Transforming raw grades into a standardized health score...")
@@ -132,6 +134,7 @@ def main():
     print(f"\n➡️ Saving cleaned data with health scores to: {args.output}")
     df.to_csv(args.output, index=False)
     print("✅ Processing complete.")
+
 
 if __name__ == "__main__":
     main()

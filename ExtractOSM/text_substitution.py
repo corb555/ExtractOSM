@@ -5,7 +5,7 @@ import yaml
 
 
 class TextSubstitutions:
-    def __init__(self, yaml_path:Path, log_level):
+    def __init__(self, yaml_path: Path, log_level):
         self.substitutions = {}
         self.convert_units = False
         self.yaml_path = yaml_path

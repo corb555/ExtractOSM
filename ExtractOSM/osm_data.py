@@ -1,18 +1,20 @@
+import logging
 from pathlib import Path
-import sys
 from typing import Iterator, Tuple, List
-
-import osmium
 
 from ExtractOSM.enrichment_manager import EnrichmentManager
 from ExtractOSM.normalize_units import normalize_units
 from ExtractOSM.significant_tag_counter import SignificantTagCounter
 from ExtractOSM.text_substitution import TextSubstitutions
+import osmium
 
 MODE_FEATURE_VALUE = "value"
 MODE_ASIS = "asis"
 MODE_PRESENCE = "presence"
 VALID_MODES = {MODE_FEATURE_VALUE, MODE_ASIS, "score", MODE_PRESENCE}
+
+LOGGER = logging.getLogger(__name__)
+
 
 class OSMData:
     """
@@ -32,7 +34,7 @@ class OSMData:
         log_level (int): Verbosity of logging
     """
 
-    def __init__(self, configuration, file_paths: dict, debug_nodes: List[str], log_level: int = 0):
+    def __init__(self, configuration, file_paths: dict, debug_nodes: List[str]):
         """
         Initializes OSMData.
 
@@ -40,23 +42,24 @@ class OSMData:
             configuration (dict): Parsed YAML configuration.
             file_paths (dict): Dictionary of file paths used in the pipeline.
             debug_nodes (List[str]): List of node IDs for verbose output.
-            log_level (int): Logging verbosity (0 = silent, 1 = verbose).
         """
         self.core_columns = ["osm_id", "item_name", "lat", "lon", "osm_category", "sub_category"]
         self.debug_nodes = debug_nodes
-        self.log_level = log_level
+        self.helper_log_level = 1 if LOGGER.isEnabledFor(logging.DEBUG) else 0
 
         self.require_name = configuration.get("require_name", True)
         if self.require_name:
-            self.log_msg("   ⏩ Note: Features without a 'name' tag will be dropped.")
+            LOGGER.info("Features without a 'name' tag will be dropped")
 
-        self.text_replace = TextSubstitutions(file_paths["substitution"], log_level)
-        self.tag_counter = SignificantTagCounter(file_paths["ignore_tags"], debug_nodes, log_level)
+        self.text_replace = TextSubstitutions(file_paths["substitution"], self.helper_log_level)
+        self.tag_counter = SignificantTagCounter(file_paths["ignore_tags"], debug_nodes,
+                                                 self.helper_log_level)
 
-        self.log_msg(f"Convert distances to meters: {'Enabled' if self.text_replace.convert_units else 'Disabled'}")
-        self.enricher = EnrichmentManager(log_level)
+        LOGGER.debug("Convert distances to meters: %s",
+                     "enabled" if self.text_replace.convert_units else "disabled")
+        self.enricher = EnrichmentManager(self.helper_log_level)
 
-        self.output_tag = configuration["output_tag"]
+        # self.output_tag = configuration["output_tag"]
         self.feature_config = configuration["features"]
 
         self._feature_data = []
@@ -77,12 +80,13 @@ class OSMData:
 
         Args:
             n (osmium.osm.Node): The OSM node object.
-            osm_category (str): OSMCategory derived from matching tag in `output_tag`. (e.g. Natural)
+            osm_category (str): OSMCategory derived from matching tag in `output_tag`. (e.g.
+            Natural)
             sub_category (str): SubCategory derived from matching tag in `output_tag`. (e.g. Peak)
             n_type (str): Node type (n, w, r)
 
         """
-        #osm_id = str(n.id).strip()
+        # osm_id = str(n.id).strip()
 
         raw_osm_id = n.id
         name = n.tags.get("name")
@@ -90,25 +94,20 @@ class OSMData:
         if isinstance(n, osmium.osm.Relation):
             # If the object is a relation, negate the ID to match osm2pgsql.
             osm_id = str(-raw_osm_id)
-            if self.counter < 100:
-                print(f"REL {name} {osm_id}")
-                self.counter += 1
         else:
             # For nodes and ways, use the positive ID.
             osm_id = str(raw_osm_id)
 
-
-
         if self.require_name and not name:
             self.node_dbg(osm_id, "Dropped because 'name' tag is missing.")
-            return #  do not add
+            return  # do not add
 
         lat = n.lat if isinstance(n, osmium.osm.Node) else 0.0
         lon = n.lon if isinstance(n, osmium.osm.Node) else 0.0
 
         new_row = {
-            "osm_id": osm_id, "item_name": name, "osm_category": osm_category, "sub_category": sub_category, "lat": lat,
-            "lon": lon,
+            "osm_id": osm_id, "item_name": name, "osm_category": osm_category,
+            "sub_category": sub_category, "lat": lat, "lon": lon,
         }
 
         feature_values = {}
@@ -121,7 +120,8 @@ class OSMData:
 
             if feature == "tag_count":
                 # Calculated feature - tag_count
-                feature_values[feature] = self.tag_counter.count(n.tags, osm_id, self.log_level)
+                feature_values[feature] = self.tag_counter.count(n.tags, osm_id,
+                                                                 self.helper_log_level)
                 continue
 
             raw_value = n.tags.get(feature)
@@ -134,8 +134,7 @@ class OSMData:
                         # Extract as numeric feature
                         raw_value = self.text_replace.substitute(raw_value)
                         value = normalize_units(
-                            raw_value
-                            ) if self.text_replace.convert_units else float(raw_value)
+                            raw_value) if self.text_replace.convert_units else float(raw_value)
                         feature_values[feature] = value
                     else:
                         # Extract as presence indicator
@@ -144,10 +143,10 @@ class OSMData:
                         if feature not in warned_features:
                             try:
                                 float(raw_value)
-                                self.log_msg(
-                                    f"⚠️ Feature '{feature}' may be numeric "
-                                    f"('{raw_value}') but is configured as presence (1.0)."
-                                    )
+                                LOGGER.warning(
+                                    "Feature %r may be numeric (%r) but is configured as presence "
+                                    "(1.0)",
+                                    feature, raw_value, )
                                 warned_features.add(feature)
                                 self._warned_features = warned_features
                             except (ValueError, TypeError):
@@ -158,9 +157,9 @@ class OSMData:
                     if mode == MODE_ASIS:
                         feature_values[feature] = ""  # Default for strings is an empty string
                     else:
-                        feature_values[feature] = 0.0 # Default for numeric/presence is 0.0
+                        feature_values[feature] = 0.0  # Default for numeric/presence is 0.0
             except Exception as e:
-                self.log_msg(f"⚠️ Failed to process tag '{feature}': {e}")
+                LOGGER.warning("Failed to process tag %r: %s", feature, e)
                 feature_values[feature] = "" if mode == MODE_ASIS else 0.0
 
         new_row.update(feature_values)
@@ -199,10 +198,8 @@ class OSMData:
                 try:
                     mode = config["mode"]
                     if mode not in VALID_MODES:
-                        raise ValueError(
-                            f"Invalid mode '{mode}' for feature '{feature}'. "
-                            f"Expected one of {sorted(VALID_MODES)}."
-                        )
+                        raise ValueError(f"Invalid mode '{mode}' for feature '{feature}'. "
+                                         f"Expected one of {sorted(VALID_MODES)}.")
                     weight = config.get("weight", 0.0)
                     yield feature, weight, mode
                 except KeyError as e:
@@ -223,9 +220,9 @@ class OSMData:
         dynamic_columns = sorted(set(feature_keys + enrichment_keys) - set(self.core_columns))
         columns = self.core_columns + dynamic_columns
 
-        print(f"➡️ Saving extract file: {filepath}")
-        print(f"   Rows: {len(self._feature_data)}")
-        print(f"   Columns: {columns}")
+        LOGGER.info("Saving extract file: %s", filepath)
+        LOGGER.debug("Rows: %d", len(self._feature_data))
+        LOGGER.debug("Columns: %s", columns)
 
         with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=columns, extrasaction='ignore')
@@ -243,17 +240,11 @@ class OSMData:
         """
         try:
             self.enricher.read_file(path, columns)
-        except Exception as e:
-            print(f"Enrichment File error: {e}")
-            sys.exit(1)
+        except Exception as exc:
+            LOGGER.exception("Enrichment file error: %s", exc)
+            raise
 
     def node_dbg(self, osm_id: str, msg: str):
         """Logs debug messages for selected nodes."""
-        if self.debug_nodes:
-            if osm_id in self.debug_nodes:
-                print(f"🟣 {osm_id}: {msg}")
-
-    def log_msg(self, msg: str):
-        """Logs general messages if log_level >= 1."""
-        if self.log_level >= 1:
-            print(msg)
+        if self.debug_nodes and osm_id in self.debug_nodes:
+            LOGGER.debug("%s: %s", osm_id, msg)

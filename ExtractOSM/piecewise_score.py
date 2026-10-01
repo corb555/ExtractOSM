@@ -9,11 +9,14 @@ def calculate_piecewise_score(value: float, curve_config: List[Dict[str, float]]
     is defined by a list of segments, where each segment specifies a linear
     score transition between a start and end value.
 
-    This function is a powerful tool to translate a raw, continuous metric (like distance, population, or article
-    length) into a more meaningful **"quality score"** that reflects human judgment and complex non-linear
+    This function is a powerful tool to translate a raw, continuous metric (like distance,
+    population, or article
+    length) into a more meaningful **"quality score"** that reflects human judgment and complex
+    non-linear
     relationships.
 
-    Use this function when a simple linear scaling (`value * coefficient`) is insufficient to capture the true
+    Use this function when a simple linear scaling (`value * coefficient`) is insufficient to
+    capture the true
     importance of a feature.
 
     The function finds the correct segment for the input value and then
@@ -31,16 +34,16 @@ def calculate_piecewise_score(value: float, curve_config: List[Dict[str, float]]
         float: The calculated quality score. Returns 0 if the value falls
             beyond the final segment.
     """
-    start_value = 0.0 # Renamed from start_distance
+    start_value = 0.0  # Renamed from start_distance
 
     for segment in curve_config:
-        end_value = segment['end_value'] # Renamed
+        end_value = segment['end_value']  # Renamed
 
         if value <= end_value:
             start_score = segment['start_score']
             end_score = segment['end_score']
 
-            segment_value_range = end_value - start_value # Renamed
+            segment_value_range = end_value - start_value  # Renamed
             segment_score_range = start_score - end_score
 
             if segment_value_range <= 0:
@@ -50,7 +53,7 @@ def calculate_piecewise_score(value: float, curve_config: List[Dict[str, float]]
             score = start_score - (progress_in_segment * segment_score_range)
             return score
 
-        start_value = end_value # Renamed
+        start_value = end_value  # Renamed
 
     return 0.0
 
@@ -87,16 +90,17 @@ def prepare_and_validate_curve(curve_config: List[Dict[str, float]]) -> List[Dic
         end_value = segment.get('end_value')
 
         if end_value is None:
-            raise ValueError(f"Configuration Error in 'metric_score_curve': Segment is missing the required 'end_value' key. Segment data: {segment}")
+            raise ValueError(
+                f"Configuration Error in 'metric_score_curve': Segment is missing the required "
+                f"'end_value' key. Segment data: {segment}")
 
         if end_value <= last_value:
             # This catches both duplicate values and any remaining sort errors.
-            raise ValueError(
-                f"Configuration Error in 'metric_score_curve': Segments must have "
-                f"strictly increasing 'end_value' values. Found segment '{segment.get('name', 'N/A')}' "
-                f"with end_value {end_value}, which is not greater than the previous "
-                f"segment's end_value of {last_value}."
-            )
+            raise ValueError(f"Configuration Error in 'metric_score_curve': Segments must have "
+                             f"strictly increasing 'end_value' values. Found segment '"
+                             f"{segment.get('name', 'N/A')}' "
+                             f"with end_value {end_value}, which is not greater than the previous "
+                             f"segment's end_value of {last_value}.")
         last_value = end_value
 
     return sorted_config

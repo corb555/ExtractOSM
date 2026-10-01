@@ -63,22 +63,18 @@ Example Usage:
         --output /path/to/matched_scores.csv
 """
 import argparse
+from pathlib import Path
 import re
 import sys
-from pathlib import Path
 from typing import Dict, List
 
+from ExtractOSM.piecewise_score import (prepare_and_validate_curve, calculate_piecewise_score, )
+from ExtractOSM.text_similarity import text_similarity, clean_text, harmonic_mean
 import geopandas as gpd
+from GeoTier.spatial_index import SpatialIndex
 import pandas as pd
 from tqdm import tqdm
-
-from GeoTier.spatial_index import SpatialIndex
 from YMLEditor.yaml_reader import ConfigLoader
-from ExtractOSM.piecewise_score import (
-    prepare_and_validate_curve,
-    calculate_piecewise_score,
-)
-from ExtractOSM.text_similarity import text_similarity, clean_text, harmonic_mean
 
 # Converts distance from m into 1-100 score. Distances under 30m are given high scores
 DEFAULT_DISTANCE_CURVE = [
@@ -86,18 +82,15 @@ DEFAULT_DISTANCE_CURVE = [
     {'name': "Excellent", 'end_value': 30, 'start_score': 100, 'end_score': 95},
     {'name': "Good", 'end_value': 60, 'start_score': 95, 'end_score': 70},
     {'name': "Acceptable", 'end_value': 80, 'start_score': 70, 'end_score': 50},
-    {'name': "Poor", 'end_value': 120, 'start_score': 50, 'end_score': 0}
-]
+    {'name': "Poor", 'end_value': 120, 'start_score': 50, 'end_score': 0}]
 
 # Readjusts the scale for RabidFuzz - promotes high scores and gives a steep
 # dropoff
-DEFAULT_NAME_SCORE_CURVE = [
-    {'name': "Bad", 'end_value': 50, 'start_score': 0, 'end_score': 10},
+DEFAULT_NAME_SCORE_CURVE = [{'name': "Bad", 'end_value': 50, 'start_score': 0, 'end_score': 10},
     {'name': "Poor", 'end_value': 65, 'start_score': 10, 'end_score': 50},
     {'name': "Acceptable", 'end_value': 68, 'start_score': 50, 'end_score': 70},
     {'name': "Good", 'end_value': 79, 'start_score': 70, 'end_score': 90},
-    {'name': "Excellent", 'end_value': 100, 'start_score': 90, 'end_score': 100}
-]
+    {'name': "Excellent", 'end_value': 100, 'start_score': 90, 'end_score': 100}]
 
 # --- Configuration Schema ---
 MATCH_SCHEMA = {
@@ -107,35 +100,31 @@ MATCH_SCHEMA = {
     'search_radius': {'type': 'number', 'required': True},
     'combined_score_threshold': {'type': 'number', 'required': True, 'min': 0, 'max': 100},
     'name_score_mode': {
-        'type': 'string', 'required': False,
-        'allowed': ['harmonic_partial'], 'default': 'harmonic_partial'
-    },
-    'aux_output_columns': {'type': 'list', 'schema': {'type': 'string'}, 'required': True},
+        'type': 'string', 'required': False, 'allowed': ['harmonic_partial'],
+        'default': 'harmonic_partial'
+    }, 'aux_output_columns': {'type': 'list', 'schema': {'type': 'string'}, 'required': True},
     'noise_words': {'type': 'list', 'schema': {'type': 'string'}, 'required': False, 'default': []},
-    'noise_words2': {'type': 'list', 'schema': {'type': 'string'}, 'required': False, 'default': []},
+    'noise_words2': {
+        'type': 'list', 'schema': {'type': 'string'}, 'required': False, 'default': []
+    },
 
     'text_cleaning_rules': {
-        'type': 'list',
-        'required': False, # Optional, defaults to an empty list
-        'default': [],
-        'schema': {
-            'type': 'dict',
-            'schema': {
+        'type': 'list', 'required': False,  # Optional, defaults to an empty list
+        'default': [], 'schema': {
+            'type': 'dict', 'schema': {
                 'name': {'type': 'string', 'required': True},
                 'pattern': {'type': 'string', 'required': True},
                 'replace': {'type': 'string', 'required': True}
             }
         }
-    },
-    'name_score_curve': {
+    }, 'name_score_curve': {
         'type': 'list', 'required': False, 'schema': {
             'type': 'dict', 'schema': {
                 'name': {'type': 'string'}, 'end_value': {'type': 'number'},
                 'start_score': {'type': 'number'}, 'end_score': {'type': 'number'}
             }
         }
-    },
-    'distance_score_curve': {
+    }, 'distance_score_curve': {
         'type': 'list', 'required': False, 'schema': {
             'type': 'dict', 'schema': {
                 'name': {'type': 'string'}, 'end_value': {'type': 'number'},
@@ -148,7 +137,10 @@ MATCH_SCHEMA = {
 SOURCE_CRS = "EPSG:4326"
 PROJECTED_CRS = "EPSG:3857"
 
-def load_and_prepare_gdf(file_path: Path, required_columns: List[str], id_col: str = None) -> gpd.GeoDataFrame:
+
+def load_and_prepare_gdf(
+        file_path: Path, required_columns: List[str], id_col: str = None
+        ) -> gpd.GeoDataFrame:
     """Loads a CSV, validates columns, cleans coordinates, and creates a GeoDataFrame."""
     dtype_spec = {id_col: str} if id_col else {}
     df = pd.read_csv(file_path, dtype=dtype_spec)
@@ -159,17 +151,13 @@ def load_and_prepare_gdf(file_path: Path, required_columns: List[str], id_col: s
     df.dropna(subset=['lon', 'lat'], inplace=True)
     if len(df) < initial_count:
         print(f"   - WARNING: Removed {initial_count - len(df)} records with missing coordinates.")
-    return gpd.GeoDataFrame(
-        df, geometry=gpd.points_from_xy(df.lon, df.lat), crs=SOURCE_CRS
-    ).to_crs(PROJECTED_CRS)
+    return gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.lon, df.lat), crs=SOURCE_CRS).to_crs(
+        PROJECTED_CRS)
+
 
 def _find_and_score_candidates(
-        aux_record_row: pd.Series,
-        spatial_index: SpatialIndex,
-        search_radius: float,
-        name_score_mode: str,
-        name_curve: List[Dict],
-        distance_curve: List[Dict]
+        aux_record_row: pd.Series, spatial_index: SpatialIndex, search_radius: float,
+        name_score_mode: str, name_curve: List[Dict], distance_curve: List[Dict]
 ) -> List[Dict]:
     """Finds and scores spatial candidates for a single auxiliary record."""
 
@@ -191,7 +179,8 @@ def _find_and_score_candidates(
         if not cleaned_target_name:
             continue
 
-        raw_name_score = text_similarity(cleaned_aux_name, cleaned_target_name, cleaned_aux_name2, cleaned_target_name2, mode=name_score_mode)
+        raw_name_score = text_similarity(cleaned_aux_name, cleaned_target_name, cleaned_aux_name2,
+                                         cleaned_target_name2, mode=name_score_mode)
 
         # Translate raw scores into quality scores using the prepared curves
         name_quality_score = calculate_piecewise_score(raw_name_score, name_curve)
@@ -200,27 +189,19 @@ def _find_and_score_candidates(
         combined_score = harmonic_mean(name_quality_score, distance_quality_score)
 
         candidate_details.append({
-            'id': result.id,
-            'dist': result.distance,
-            'name_sc': name_quality_score,
-            'score': combined_score,
-            'raw_name_sc': raw_name_score,
-            'aux_name_clean': cleaned_aux_name,
-            'target_name_clean': cleaned_target_name,
+            'id': result.id, 'dist': result.distance, 'name_sc': name_quality_score,
+            'score': combined_score, 'raw_name_sc': raw_name_score,
+            'aux_name_clean': cleaned_aux_name, 'target_name_clean': cleaned_target_name,
             'orig_name': original_target_name.lower(),
         })
 
     return sorted(candidate_details, key=lambda x: x['score'], reverse=True)
 
-def match_and_format_results(
-        args: argparse.Namespace,
-        aux_gdf: gpd.GeoDataFrame,
-        spatial_index: SpatialIndex,
-        config: dict,
-        name_curve: List[Dict],
-        distance_curve: List[Dict]
-) -> (List[Dict], List[Dict]):
 
+def match_and_format_results(
+        args: argparse.Namespace, aux_gdf: gpd.GeoDataFrame, spatial_index: SpatialIndex,
+        config: dict, name_curve: List[Dict], distance_curve: List[Dict]
+) -> (List[Dict], List[Dict]):
     """Iterates through auxiliary records, finds matches, and formats results."""
     id_col = config['id_column']
     name_col = config['name_column']
@@ -232,10 +213,10 @@ def match_and_format_results(
     explain_results = []
 
     # Iterate through auxiliary records
-    for index, aux_record_row in tqdm(aux_gdf.iterrows(), total=len(aux_gdf), desc="Matching records"):
-        sorted_candidates = _find_and_score_candidates(
-            aux_record_row, spatial_index, search_radius, "harmonic_partial", name_curve, distance_curve
-        )
+    for index, aux_record_row in tqdm(aux_gdf.iterrows(), total=len(aux_gdf),
+                                      desc="Matching records"):
+        sorted_candidates = _find_and_score_candidates(aux_record_row, spatial_index, search_radius,
+            "harmonic_partial", name_curve, distance_curve)
 
         if not sorted_candidates:
             continue
@@ -254,14 +235,15 @@ def match_and_format_results(
             if best_candidate['score'] >= combined_threshold:
                 # --- Include the score for de-duplication ---
                 match_data = {
-                    'osm_id': best_candidate['id'],
-                    'score': best_candidate['score'] # Pass the score along
+                    'osm_id': best_candidate['id'], 'score': best_candidate['score']
+                    # Pass the score along
                 }
                 for col in aux_columns:
                     match_data[col] = aux_record_row[col]
                 all_results.append(match_data)
 
     return all_results, explain_results
+
 
 """
         candidate_details.append({
@@ -277,19 +259,20 @@ def match_and_format_results(
 
 """
 
+
 def main() -> None:
     """Orchestrates the fuzzy join process."""
     parser = argparse.ArgumentParser(description="Fuzzy join two geospatial CSV files.")
     parser.add_argument("--master", type=Path, required=True, help="Path to the master data CSV.")
-    parser.add_argument("--auxiliary", type=Path, required=True, help="Path to the auxiliary data CSV.")
-    parser.add_argument("--config", type=Path, required=True, help="Path to the YAML configuration file.")
+    parser.add_argument("--auxiliary", type=Path, required=True,
+                        help="Path to the auxiliary data CSV.")
+    parser.add_argument("--config", type=Path, required=True,
+                        help="Path to the YAML configuration file.")
     parser.add_argument("--output", type=Path, required=True, help="Path for the output file.")
-    parser.add_argument("--explain", type=int, nargs='?', const=2, default=None, help="Activate explain mode.")
-    parser.add_argument(
-        "--ignore-errors",
-        action="store_true", # This makes it a boolean flag.
-        help="If present, the script will log warnings for data errors instead of exiting."
-    )
+    parser.add_argument("--explain", type=int, nargs='?', const=2, default=None,
+                        help="Activate explain mode.")
+    parser.add_argument("--ignore-errors", action="store_true",  # This makes it a boolean flag.
+        help="If present, the script will log warnings for data errors instead of exiting.")
     args = parser.parse_args()
 
     try:
@@ -309,10 +292,12 @@ def main() -> None:
         cleaning_rules = config.get('text_cleaning_rules', [])
 
         noise_words = config.get('noise_words', [])
-        noise_pattern = re.compile(r"\b(" + "|".join(re.escape(w) for w in noise_words) + r")\b", re.IGNORECASE)
+        noise_pattern = re.compile(r"\b(" + "|".join(re.escape(w) for w in noise_words) + r")\b",
+                                   re.IGNORECASE)
 
         noise_words2 = config.get('noise_words2', [])
-        noise_pattern2 = re.compile(r"\b(" + "|".join(re.escape(w) for w in (set(noise_words) | set(noise_words2))) + r")\b", re.IGNORECASE)
+        noise_pattern2 = re.compile(r"\b(" + "|".join(
+            re.escape(w) for w in (set(noise_words) | set(noise_words2))) + r")\b", re.IGNORECASE)
         print("   - Configurations prepared.")
 
         print("\n➡️ Loading and preparing datasets...")
@@ -321,42 +306,53 @@ def main() -> None:
         print("   - Datasets loaded and reprojected.")
 
         if len(aux_gdf) > len(target_gdf) * 1.1:
-            print(f"\n  ⚠️  - WARNING: Auxiliary file ({len(aux_gdf)}) is larger than master ({len(target_gdf)}).")
+            print(
+                f"\n  ⚠️  - WARNING: Auxiliary file ({len(aux_gdf)}) is larger than master ("
+                f"{len(target_gdf)}).")
             print("      - --master and --auxiliary arguments may be swapped.\n")
 
         print("➡️ Pre-cleaning names...")
-        target_gdf['clean_name'] = target_gdf[name_col].apply(lambda x: clean_text(x, noise_pattern,cleaning_rules)
-                                                              )
-        aux_gdf['clean_name'] = aux_gdf[name_col].apply(lambda x: clean_text(x, noise_pattern,cleaning_rules))
+        target_gdf['clean_name'] = target_gdf[name_col].apply(
+            lambda x: clean_text(x, noise_pattern, cleaning_rules))
+        aux_gdf['clean_name'] = aux_gdf[name_col].apply(
+            lambda x: clean_text(x, noise_pattern, cleaning_rules))
 
-        target_gdf['clean_name2'] = target_gdf[name_col].apply(lambda x: clean_text(x, noise_pattern2,cleaning_rules)
-                                                               )
-        aux_gdf['clean_name2'] = aux_gdf[name_col].apply(lambda x: clean_text(x, noise_pattern2,cleaning_rules))
+        target_gdf['clean_name2'] = target_gdf[name_col].apply(
+            lambda x: clean_text(x, noise_pattern2, cleaning_rules))
+        aux_gdf['clean_name2'] = aux_gdf[name_col].apply(
+            lambda x: clean_text(x, noise_pattern2, cleaning_rules))
         print("   - Name cleaning complete.")
 
         spatial_index = SpatialIndex(approximate_distance=False)
         print("➡️ Building spatial index...")
-        for index, target_row in tqdm(target_gdf.iterrows(), total=len(target_gdf), desc="Indexing master records"):
+        for index, target_row in tqdm(target_gdf.iterrows(), total=len(target_gdf),
+                                      desc="Indexing master records"):
             try:
                 if target_row['geometry'].is_empty: continue
-                payload = (target_row['clean_name'], target_row['clean_name2'], target_row[name_col])
-                spatial_index.add_point(int(target_row[id_col]), target_row['geometry'], data=payload)
+                payload = (target_row['clean_name'], target_row['clean_name2'],
+                           target_row[name_col])
+                spatial_index.add_point(int(target_row[id_col]), target_row['geometry'],
+                                        data=payload)
             except Exception as e:
                 if args.ignore_errors:
-                    print(f"Spatial Index error: {e}  {args.master}, Row={index}, ID='{target_row[id_col]}'")
+                    print(
+                        f"Spatial Index error: {e}  {args.master}, Row={index}, ID='"
+                        f"{target_row[id_col]}'")
                     continue
-                raise ValueError(f"❌Spatial Index error: {e}\n{args.master}, Row={index}, ID='{target_row[id_col]}'")
+                raise ValueError(
+                    f"❌Spatial Index error: {e}\n{args.master}, Row={index}, ID='"
+                    f"{target_row[id_col]}'")
 
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"❌ Error during setup: {e}")
         sys.exit(1)
 
-    standard_results, explain_results = match_and_format_results(
-        args, aux_gdf, spatial_index, config, name_curve, distance_curve
-    )
+    standard_results, explain_results = match_and_format_results(args, aux_gdf, spatial_index,
+        config, name_curve, distance_curve)
 
     if not standard_results:
-        print("⚠️ No valid matches found based on the threshold. Standard output file will be empty.")
+        print(
+            "⚠️ No valid matches found based on the threshold. Standard output file will be empty.")
 
     initial_output_df = pd.DataFrame(standard_results)
 
@@ -403,6 +399,7 @@ def main() -> None:
         match_rate = (successful_matches / len(aux_gdf)) * 100
         print(f"   - Match Rate:              {match_rate:.2f}%")
     print("\n✅ Geo Fuzzy done.")
+
 
 if __name__ == "__main__":
     main()

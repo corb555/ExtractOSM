@@ -53,16 +53,15 @@ Example Usage:
         --output /path/to/prominence_with_osm_ids.csv
 """
 import argparse
+from pathlib import Path
 import re
 import sys
-import unicodedata
-from pathlib import Path
 from typing import Any, Dict, List
+import unicodedata
 
 import pandas as pd
 from rapidfuzz import fuzz  # MODIFIED: Using the faster rapidfuzz library
 from tqdm import tqdm
-
 from YMLEditor.yaml_reader import ConfigLoader
 
 # --- Configuration Schema (Principle 1.3.3) ---
@@ -73,14 +72,11 @@ MATCH_SCHEMA = {
     'master_ele_col': {'type': 'string', 'required': True},
     'master_id_col': {'type': 'string', 'required': True},
     'aux_name_col': {'type': 'string', 'required': True},
-    'aux_ele_col': {'type': 'string', 'required': True},
-    'name_score_threshold': {
+    'aux_ele_col': {'type': 'string', 'required': True}, 'name_score_threshold': {
         'type': 'integer', 'required': True, 'min': 0, 'max': 100
-    },
-    'elevation_percent_tolerance': {
+    }, 'elevation_percent_tolerance': {
         'type': 'float', 'required': True, 'min': 0
-    },
-    'noise_words': {
+    }, 'noise_words': {
         'type': 'list', 'schema': {'type': 'string'}, 'required': False, 'default': []
     }
 }
@@ -108,7 +104,8 @@ def clean_text(text: Any, noise_pattern: re.Pattern = None) -> str:
     return " ".join(text.split())  # Normalize whitespace
 
 
-def build_master_lookup(df: pd.DataFrame, name_col: str, ele_col: str, id_col: str) -> Dict[str, List[Dict]]:
+def build_master_lookup(df: pd.DataFrame, name_col: str, ele_col: str, id_col: str) -> Dict[
+    str, List[Dict]]:
     """
     Builds an in-memory lookup dictionary from the master DataFrame.
 
@@ -138,9 +135,7 @@ def build_master_lookup(df: pd.DataFrame, name_col: str, ele_col: str, id_col: s
 
         # Store the original name for more accurate scoring later.
         candidate = {
-            'ele': float(elevation),
-            'id': record_id,
-            'original_name': name
+            'ele': float(elevation), 'id': record_id, 'original_name': name
         }
         if cleaned_name not in lookup:
             lookup[cleaned_name] = []
@@ -151,10 +146,14 @@ def build_master_lookup(df: pd.DataFrame, name_col: str, ele_col: str, id_col: s
 def main() -> None:
     """Orchestration layer: Handles I/O, config, and calls the main pipeline."""
     parser = argparse.ArgumentParser(description="Fuzzy match records by name and elevation.")
-    parser.add_argument("--master", type=Path, required=True, help="Path to the master data CSV (e.g., OSM).")
-    parser.add_argument("--auxiliary", type=Path, required=True, help="Path to the auxiliary data to enrich.")
-    parser.add_argument("--config", type=Path, required=True, help="Path to the YAML configuration file.")
-    parser.add_argument("--output", type=Path, required=True, help="Path for the output enriched CSV file.")
+    parser.add_argument("--master", type=Path, required=True,
+                        help="Path to the master data CSV (e.g., OSM).")
+    parser.add_argument("--auxiliary", type=Path, required=True,
+                        help="Path to the auxiliary data to enrich.")
+    parser.add_argument("--config", type=Path, required=True,
+                        help="Path to the YAML configuration file.")
+    parser.add_argument("--output", type=Path, required=True,
+                        help="Path for the output enriched CSV file.")
     args = parser.parse_args()
 
     try:
@@ -169,16 +168,18 @@ def main() -> None:
         aux_df = pd.read_csv(args.auxiliary)
 
         noise_words = config.get('noise_words', [])
-        noise_pattern = re.compile(r"\b(" + "|".join(re.escape(w) for w in noise_words) + r")\b", re.IGNORECASE) if noise_words else None
+        noise_pattern = re.compile(r"\b(" + "|".join(re.escape(w) for w in noise_words) + r")\b",
+                                   re.IGNORECASE) if noise_words else None
 
         print("   - Pre-cleaning names for matching...")
-        master_df['clean_name'] = master_df[config['master_name_col']].apply(lambda x: clean_text(x, noise_pattern))
-        aux_df['clean_name'] = aux_df[config['aux_name_col']].apply(lambda x: clean_text(x, noise_pattern))
+        master_df['clean_name'] = master_df[config['master_name_col']].apply(
+            lambda x: clean_text(x, noise_pattern))
+        aux_df['clean_name'] = aux_df[config['aux_name_col']].apply(
+            lambda x: clean_text(x, noise_pattern))
 
         # --- STAGE 3: Build Master Data Index for Fast Lookups ---
-        master_lookup = build_master_lookup(
-            master_df, config['master_name_col'], config['master_ele_col'], config['master_id_col']
-        )
+        master_lookup = build_master_lookup(master_df, config['master_name_col'],
+            config['master_ele_col'], config['master_id_col'])
 
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"\n❌ FATAL ERROR during setup: {e}")
@@ -189,7 +190,8 @@ def main() -> None:
     ele_tolerance = config['elevation_percent_tolerance'] / 100.0
     name_threshold = config['name_score_threshold']
 
-    for aux_record in tqdm(aux_df.itertuples(), total=len(aux_df), desc="Matching auxiliary records"):
+    for aux_record in tqdm(aux_df.itertuples(), total=len(aux_df),
+                           desc="Matching auxiliary records"):
         aux_clean_name = getattr(aux_record, 'clean_name')
         aux_original_name = getattr(aux_record, config['aux_name_col'])
         aux_ele = getattr(aux_record, config['aux_ele_col'])
@@ -216,18 +218,15 @@ def main() -> None:
                 continue
 
             valid_candidates.append({
-                'id': cand['id'],
-                'ele_diff': ele_diff,
-                'name_score': name_score
+                'id': cand['id'], 'ele_diff': ele_diff, 'name_score': name_score
             })
 
         if valid_candidates:
             # Find the best candidate by the closest elevation
             best_candidate = min(valid_candidates, key=lambda x: x['ele_diff'])
             all_matches.append({
-                'aux_index': aux_record.Index,
-                config['master_id_col']: best_candidate['id'],
-                'match_score': best_candidate['name_score'] # For tie-breaking
+                'aux_index': aux_record.Index, config['master_id_col']: best_candidate['id'],
+                'match_score': best_candidate['name_score']  # For tie-breaking
             })
 
     if not all_matches:
@@ -243,18 +242,16 @@ def main() -> None:
 
         num_dupes_removed = len(match_df) - len(final_matches)
         if num_dupes_removed > 0:
-            print(f"   - Removed {num_dupes_removed} duplicate matches to ensure a unique master ID mapping.")
+            print(
+                f"   - Removed {num_dupes_removed} duplicate matches to ensure a unique master ID "
+                f"mapping.")
 
         # ---  Use an INNER merge to keep only successful matches ---
         # This is the key change that prevents 'NaN' osm_id values in the output.
-        output_df = aux_df.merge(
-            final_matches[['aux_index', config['master_id_col']]],
-            left_index=True,
-            right_on='aux_index',
-            how='inner'  # Changed from 'left' to 'inner'
+        output_df = aux_df.merge(final_matches[['aux_index', config['master_id_col']]],
+            left_index=True, right_on='aux_index', how='inner'  # Changed from 'left' to 'inner'
         )
         output_df.drop(columns=['aux_index', 'clean_name'], inplace=True, errors='ignore')
-
 
     # --- STAGE 6: Save Results ---
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -1,129 +1,250 @@
-# text_similarity.py
-"""Provides high-performance, configurable text similarity scoring.
+"""Normalize and compare real-world entity names.
 
-This module contains functions for cleaning and comparing text strings to
-determine their similarity. It is designed for the specific challenge of matching
-real-world entity names which may have minor variations,
-typos, or different word orders.
+The module separates text matching into two stages:
 
-The core function, text_similarity, calculates a composite score by combining multiple rapidfuzz algorithms. This approach
-mitigates the known weaknesses of individual algorithms: token_sort_ratio handles word reordering and typos, while partial_ratio
-provides a check for core entity matching. The final score is the harmonic mean of these two metrics, which penalizes candidates
-that do not score highly on both.
+1. :func:`prepare_text` performs normalization once before candidate matching.
+2. :func:`text_similarity` compares two prepared values and returns both the
+   component scores and their conservative harmonic-mean score.
+
+This is useful for  entity matching where  candidates may contain
+minor spelling differences, reordered words, abbreviations, or extra terms.
 """
+
+from __future__ import annotations
+
+from dataclasses import dataclass
 import re
 import string
-from typing import List, Dict
-
+from typing import Iterable, Mapping
 import unicodedata
 
 from rapidfuzz.fuzz import partial_ratio, token_sort_ratio
 
-def text_similarity(text1: str, text2: str, text1_clean: str, text2_clean: str, mode: str) -> float:
-    """Calculates a text similarity score.
+DEFAULT_UNICODE_FORM = "NFKC"
+VALID_UNICODE_FORMS = frozenset({"NFC", "NFD", "NFKC", "NFKD"})
+ASCII_ENCODING = "ascii"
+UTF8_ENCODING = "utf-8"
 
-    The  'harmonic_partial' mode calculates a composite score that is resilient to both word reordering
-     and the addition or subtraction of terms.
-     The noisewords are removed for the partial_ratio.
+
+@dataclass(frozen=True, slots=True)
+class CleaningRule:
+    """Regex substitution applied during text preparation.
 
     Args:
-        text1 (str): The first string to compare. Should be pre-normalized.
-        text2 (str): The second string to compare. Should be pre-normalized.
-        text1_clean (str): Text2 with aggressive noise word removal
-        text2_clean (str): Text2 with aggressive noise word removal
+        pattern: Regular expression to replace.
+        replacement: Replacement string.
+    """
 
-        mode (str): The scoring strategy to use. Currently, supports
-            'harmonic_partial'.
+    pattern: str
+    replacement: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class TextPreprocessConfig:
+    """Configuration for entity-name preprocessing.
+
+    Args:
+        unicode_form: Unicode normalization form. Use ``None`` to disable
+            Unicode normalization.
+        ascii_fold: If true, remove accents and characters that cannot be
+            represented as ASCII. This is useful for some Latin-script datasets
+            but should normally remain false for multilingual data.
+        lowercase: Convert text to lowercase.
+        remove_punctuation: Remove ASCII punctuation.
+        cleaning_rules: Ordered regex substitutions applied before noise-word
+            removal.
+        noise_words: Words or phrases removed only from the aggressively cleaned
+            representation.
+    """
+
+    unicode_form: str | None = DEFAULT_UNICODE_FORM
+    ascii_fold: bool = False
+    lowercase: bool = True
+    remove_punctuation: bool = True
+    cleaning_rules: tuple[CleaningRule, ...] = ()
+    noise_words: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Validate configuration values."""
+        if self.unicode_form is not None:
+            normalized = self.unicode_form.upper()
+            if normalized not in VALID_UNICODE_FORMS:
+                valid = ", ".join(sorted(VALID_UNICODE_FORMS))
+                raise ValueError(f"Invalid Unicode normalization form "
+                                 f"{self.unicode_form!r}. Expected one of: {valid}, or None.")
+            object.__setattr__(self, "unicode_form", normalized)
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedText:
+    """Precomputed text representations used by the similarity scorer."""
+
+    normalized: str
+    cleaned: str
+
+
+@dataclass(frozen=True, slots=True)
+class TextSimilarityResult:
+    """Detailed fuzzy-text comparison result."""
+
+    score: float | None
+    token_sort_score: float | None
+    partial_score: float | None
+
+    @property
+    def has_evidence(self) -> bool:
+        """Return whether the comparison produced usable text evidence."""
+        return self.score is not None
+
+
+def prepare_text(
+        text: object, config: TextPreprocessConfig | None = None, ) -> PreparedText:
+    """Prepare an entity name for repeated fuzzy matching.
+
+    Preparation should normally occur once when a source row is loaded.
+    Candidate comparisons can then
+    reuse the prepared representations.
+
+    The normalization pipeline is:
+
+    1. Unicode normalization, if configured.
+    2. Optional ASCII folding.
+    3. Lowercasing.
+    4. Ordered regex substitutions.
+    5. Optional punctuation removal.
+    6. Whitespace collapse.
+
+    The ``cleaned`` representation additionally removes configured noise words
+    after regex substitutions and before punctuation removal.
+
+    Args:
+        text: Raw input value. Non-string values produce empty representations.
+        config: Preprocessing options. Defaults to
+            :class:`TextPreprocessConfig`.
 
     Returns:
-        float: The final, combined similarity score (0-100).
+        Prepared normalized and aggressively cleaned representations.
+    """
+    settings = config or TextPreprocessConfig()
+    if not isinstance(text, str):
+        return PreparedText(normalized="", cleaned="")
+
+    normalized = _normalize_base(text, settings)
+    cleaned = _remove_noise_words(normalized, settings.noise_words)
+
+    return PreparedText(normalized=_finalize_text(normalized, settings.remove_punctuation),
+        cleaned=_finalize_text(cleaned, settings.remove_punctuation), )
+
+
+def text_similarity(
+        first: PreparedText, second: PreparedText, ) -> TextSimilarityResult:
+    """Compare two prepared entity names.
+
+    ``token_sort_ratio`` compares normalized full names while tolerating
+    word-order changes. ``partial_ratio`` compares aggressively cleaned names
+    and tolerates extra or missing terms. Their harmonic mean is intentionally
+    conservative: both comparisons must be reasonably strong for the final
+    score to remain high.
+
+    Empty or fully stripped names provide no text evidence and return ``None``
+    scores instead of treating missing values as a successful match.
+
+    Args:
+        first: First preprocessed entity name.
+        second: Second preprocessed entity name.
+
+    Returns:
+        Component scores and the combined harmonic-mean score.
+    """
+    if not (first.normalized and second.normalized and first.cleaned and second.cleaned):
+        return TextSimilarityResult(score=None, token_sort_score=None, partial_score=None, )
+
+    token_score = float(token_sort_ratio(first.normalized, second.normalized))
+    partial_score = float(partial_ratio(first.cleaned, second.cleaned))
+
+    return TextSimilarityResult(score=harmonic_mean(token_score, partial_score),
+        token_sort_score=token_score, partial_score=partial_score, )
+
+
+def harmonic_mean(first: float, second: float) -> float:
+    """Return the harmonic mean of two non-negative scores.
+
+    Args:
+        first: First score.
+        second: Second score.
+
+    Returns:
+        Harmonic mean, or ``0.0`` if either score is not positive.
+    """
+    if first <= 0.0 or second <= 0.0:
+        return 0.0
+    return (2.0 * first * second) / (first + second)
+
+
+def cleaning_rules_from_mappings(
+        rules: Iterable[Mapping[str, str]], ) -> tuple[CleaningRule, ...]:
+    """Convert configuration mappings into immutable cleaning rules.
+
+    This helper is convenient when rules are loaded from YAML.
+
+    Each mapping must contain ``pattern`` and may contain either ``replacement``
+    or ``replace``.
+
+    Args:
+        rules: Ordered configuration mappings.
+
+    Returns:
+        Parsed cleaning rules.
 
     Raises:
-        ValueError: If an unknown mode is provided.
+        ValueError: If a rule does not define a pattern.
     """
-    # Score 1: Measures overall similarity, tolerant of word order.
-    score_token_sort = token_sort_ratio(text1, text2)
+    parsed: list[CleaningRule] = []
+    for index, rule in enumerate(rules):
+        pattern = rule.get("pattern")
+        if not pattern:
+            raise ValueError(f"Cleaning rule {index} is missing 'pattern'.")
 
-    # Score 2: Measures the best substring match, tolerant of extra words using aggressively cleaned text
-    score_partial = partial_ratio(text1_clean, text2_clean)
+        replacement = rule.get("replacement", rule.get("replace", ""))
+        parsed.append(CleaningRule(pattern=str(pattern), replacement=str(replacement), ))
 
-    if mode == 'harmonic_partial':
-        # This strategy combines the two scores using a harmonic mean, which
-        # strongly penalizes cases where one score is high but the other is low.
-        # This requires a candidate to match on both overall and core similarity.
-        return harmonic_mean(score_token_sort, score_partial)
-    else:
-        raise ValueError(f"Unknown mode '{mode}' specified for text_similarity.")
+    return tuple(parsed)
 
-def clean_text(
-        text: str,
-        noise_words_pattern: re.Pattern,
-        cleaning_rules: List[Dict[str, str]],
-) -> str:
-    """
-    Performs a robust cleaning and normalization pipeline on a string using
-    a configurable set of regex substitutions.
 
-    This function prepares raw text for  matching by executing a
-    sequence of cleaning steps. It is designed to handle common data quality
-    issues like accents, special characters, and inconsistent capitalization.
+def _normalize_base(text: str, config: TextPreprocessConfig) -> str:
+    """Apply normalization shared by full and aggressive representations."""
+    result = text
 
-    The normalization process is as follows:
-    1.  Unicode Normalization (NFKD): Decomposes characters and strips accents.
-    2.  Lowercasing: Converts all characters to lowercase.
-    3.  Noise Word Removal: Strips noise words using a pre-compiled regex.
-    4.  Punctuation Removal: Strips all punctuation characters.
-    5.  Whitespace Collapsing: Reduces multiple spaces to a single space.
-    Args:
-        text: The raw input string.
-        noise_words_pattern: A pre-compiled regex for removing noise words.
-        cleaning_rules: A list of dictionaries, where each dict contains a
-                        'pattern' (regex string) and a 'replace' string.
+    if config.unicode_form is not None:
+        result = unicodedata.normalize(config.unicode_form, result)
 
-    Returns:
-        The cleaned and normalized string.
-    """
-    if not isinstance(text, str):
-        return ""
+    if config.ascii_fold:
+        result = unicodedata.normalize("NFKD", result)
+        result = (result.encode(ASCII_ENCODING, "ignore").decode(UTF8_ENCODING, "ignore"))
 
-    # Step 1: Unicode Normalization (to handle accents, special quotes, etc.)
-    text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('utf-8', 'ignore')
+    if config.lowercase:
+        result = result.lower()
 
-    # Step 2: Lowercasing
-    text = text.lower()
+    for rule in config.cleaning_rules:
+        result = re.sub(rule.pattern, rule.replacement, result)
 
-    # Step 3: Apply the configured list of regex prefix substitutions
-    if cleaning_rules:
-        for rule in cleaning_rules:
-            text = re.sub(rule['pattern'], rule['replace'], text)
+    return result
 
-    # Step 4: Remove general noise words
-    text = noise_words_pattern.sub("", text)
 
-    # Step 5: Remove all remaining punctuation
-    text = text.translate(str.maketrans('', '', string.punctuation))
+def _remove_noise_words(text: str, noise_words: tuple[str, ...]) -> str:
+    """Remove configured noise words or phrases using safe boundaries."""
+    terms = [term.strip() for term in noise_words if term.strip()]
+    if not terms:
+        return text
 
-    # Step 6: Collapse whitespace
-    return " ".join(text.split())
+    alternatives = "|".join(re.escape(term) for term in sorted(terms, key=len, reverse=True))
+    pattern = re.compile(rf"(?<!\w)(?:{alternatives})(?!\w)", flags=re.IGNORECASE, )
+    return pattern.sub(" ", text)
 
-def harmonic_mean(score1: float, score2: float) -> float:
-    """Calculates the harmonic mean of two scores, safely handling zeros.
 
-    The harmonic mean is a type of average that is strongly biased towards the
-    smaller of the two values. It is used in this context to combine two
-    different  metrics, ensuring that the final score is high only
-    if *both* input scores are high.
-
-    Args:
-        score1 (float): The first score (0-100).
-        score2 (float): The second score (0-100).
-
-    Returns:
-        float: The calculated harmonic mean.
-    """
-    # An epsilon is added to the denominator to prevent division by zero in the
-    # edge case where both scores sum to  zero.
-    epsilon = 1e-9
-    if score1 <= 0 or score2 <= 0:
-        return 0
-    return (2 * score1 * score2) / (score1 + score2 + epsilon)
+def _finalize_text(text: str, remove_punctuation: bool) -> str:
+    """Apply final punctuation removal and whitespace normalization."""
+    result = text
+    if remove_punctuation:
+        result = result.translate(str.maketrans("", "", string.punctuation))
+    return " ".join(result.split())

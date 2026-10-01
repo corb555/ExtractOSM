@@ -7,9 +7,9 @@ tool. It is designed to be called from an automated build system.
 
 import argparse
 import logging
+from pathlib import Path
 import subprocess
 import sys
-from pathlib import Path
 from typing import List
 
 
@@ -45,13 +45,9 @@ class CartoPublisher:
 
         osm_file_abs_path = osm_file_path.resolve()
 
-        command = [
-            "osm2pgsql", "--append", "--slim", "-O", "flex",
-            "-S", "openstreetmap-carto-flex.lua",
-            "-d", "gis",  # Assumes the database name is 'gis'
-            "--log-level=warn",
-            str(osm_file_abs_path)
-        ]
+        command = ["osm2pgsql", "--append", "--slim", "-O", "flex", "-S",
+            "openstreetmap-carto-flex.lua", "-d", "gis",  # Assumes the database name is 'gis'
+            "--log-level=warn", str(osm_file_abs_path)]
 
         self.logger.info(f"➡️ Publishing '{osm_file_path.name}' to PostGIS database...")
         self._run_command(command)
@@ -66,10 +62,8 @@ class CartoPublisher:
         self.logger.info(f"   - Executing command: {command_str}")
 
         try:
-            process = subprocess.Popen(
-                command, cwd=self.carto_dir, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True, encoding='utf-8'
-            )
+            process = subprocess.Popen(command, cwd=self.carto_dir, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True, encoding='utf-8')
             for line in iter(process.stdout.readline, ''):
                 self.logger.info(f"     | {line.strip()}")
             process.stdout.close()
@@ -89,7 +83,7 @@ class CartoPublisher:
 def setup_logger(level: int) -> logging.Logger:
     """Initializes and configures the logger for the script."""
     logger = logging.getLogger("publish_osm")
-    logger.setLevel(level * 10) # Standard levels are multiples of 10
+    logger.setLevel(level * 10)  # Standard levels are multiples of 10
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
         formatter = logging.Formatter("%(message)s")
@@ -100,21 +94,13 @@ def setup_logger(level: int) -> logging.Logger:
 
 def main():
     """Orchestration layer: Handles I/O, config, and calls the publisher."""
-    parser = argparse.ArgumentParser(
-        description="Publish a classified OSM file to a PostGIS DB."
-    )
-    parser.add_argument(
-        "--input", type=Path, required=True,
-        help="Path to the classified OSM file to import."
-    )
-    parser.add_argument(
-        "--carto-dir", type=Path, required=True,
-        help="Path to the 'openstreetmap-carto' project directory."
-    )
-    parser.add_argument(
-        "--log-level", type=int, choices=range(0, 6), default=5,
-        help="Set log level (0=quiet, 5=verbose). Default is 5."
-    )
+    parser = argparse.ArgumentParser(description="Publish a classified OSM file to a PostGIS DB.")
+    parser.add_argument("--input", type=Path, required=True,
+        help="Path to the classified OSM file to import.")
+    parser.add_argument("--carto-dir", type=Path, required=True,
+        help="Path to the 'openstreetmap-carto' project directory.")
+    parser.add_argument("--log-level", type=int, choices=range(0, 6), default=5,
+        help="Set log level (0=quiet, 5=verbose). Default is 5.")
     args = parser.parse_args()
 
     logger = setup_logger(args.log_level)

@@ -1,7 +1,10 @@
 [console_scripts]
+cache-wikipedia = ExtractOSM.wikipedia_cache:main
 calc-latlon = ExtractOSM.calc_latlon:main
 enrich-features = ExtractOSM.enrich_features:main
 extract-osm = ExtractOSM.run_extract_osm:main
 geo-fuzzy-match = ExtractOSM.geo_fuzzy_match:main
-get-wikipedia = ExtractOSM.wikipedia_props:main
+match-wikipedia = ExtractOSM.wikipedia_match:main
 publish-osm = ExtractOSM.publish_osm:main
+spatial-match = ExtractOSM.spatial_matcher.spatial_match:main
+wiki-categories = ExtractOSM.wiki_categories:main

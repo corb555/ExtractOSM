@@ -2,217 +2,221 @@
 """
 calc_latlon.py
 
-This script reads an OpenStreetMap (OSM) file, extracts polygon features to geosjson
-and calculates their area and centroid (latitude/longitude), and exports the
-results to a CSV file.
-
-This script uses a "filter-first" streaming architecture for high performance and
-low memory usage on very large OSM files.
-
-1.  **Declarative Filtering:** Filtering is controlled by a YAML file, which
-    specifies which features to process based on their OSM tags.
-
-2.  **Efficient Pre-filtering:** The script passes these filter rules directly
-    to the `osmium` command-line tool. Osmium, a high-performance C++ utility,
-    pre-filters the massive source OSM file to create a small, intermediate
-    GeoJSON file containing only the features of interest.
-
-3.  **Streaming Processing:** The script then processes this smaller GeoJSON file
-    as a stream, feature by feature. This ensures that memory consumption remains
-    low and constant, regardless of the number of features.
-
-This script requires 'osmium' to be installed and in the system's PATH.
+This script reads an OpenStreetMap (OSM) file, extracts polygon AND linestring features
+to geojson, calculates their area/length and centroid (latitude/longitude), and
+exports the results to a CSV file.
 """
 
 import argparse
 import csv
-import json
+import logging
 import math
 import os
-import subprocess
-import sys
 from pathlib import Path
+import subprocess
 
+from ExtractOSM.classification_schema import CLASSIFICATION_SCHEMA
 import ijson
 from pyproj import Transformer
 from shapely.geometry import shape
 from shapely.ops import transform
 from tqdm import tqdm
-
-from ExtractOSM.classification_schema import CLASSIFICATION_SCHEMA
 from YMLEditor.yaml_reader import ConfigLoader
 
+LOGGER = logging.getLogger(__name__)
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Calculate the lat/lon and area for OSM polygons"
-    )
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Calculate the lat/lon and area for OSM features")
     parser.add_argument("--osm-file", type=Path, required=True, help="Path to OSM file")
     parser.add_argument("--config", type=Path, required=True, help="Path to classification yml")
     parser.add_argument("--output", type=Path, required=True, help="Path for output CSV")
     parser.add_argument("--build-dir", type=Path, required=True, help="Build directory")
-    parser.add_argument("--log-level", type=int, default=4, help="Set log level.")
+    parser.add_argument("-v", "--verbose", action="store_true",
+        help="Enable verbose diagnostic logging.", )
     args = parser.parse_args()
+
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(message)s", )
 
     osm_fname = os.path.basename(args.osm_file)
     geojson_path = Path(args.build_dir, f"{os.path.splitext(osm_fname)[0]}_geo.json")
     geojson_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Store unique features for output: {osm_id: {data}}
+    unique_features = {}
+
     try:
-        print(f"--- Loading config: {args.config} ---")
+        LOGGER.debug("Loading config: %s", args.config)
         loader = ConfigLoader(CLASSIFICATION_SCHEMA)
         loader.validator.allow_unknown = True
         configuration = loader.read(args.config)
-        print("✅ Configuration loaded successfully.")
+        LOGGER.debug("Configuration loaded successfully.")
     except (FileNotFoundError, ValueError) as e:
-        sys.exit(f"\n❌ Configuration error: {e}\n")
+        LOGGER.error("Configuration error: %s", e)
+        return 1
 
-    filter_map = {
-        key: set(subconf.get("filters", []))
-        for key, subconf in configuration.get("keys", {}).items()
-    }
-    print_filters(filter_map)
+    filter_map = {key: set(subconf.get("filters", [])) for key, subconf in
+        configuration.get("keys", {}).items()}
+    log_filters(filter_map)
 
     # Pass the filters directly to the GeoJSON creation step.
     if not create_filtered_geojson(geojson_path, args.osm_file, filter_map):
-        sys.exit(1)
+        return 1
 
-    print(f"  Output csv: {args.output}")
-
-    print("➡️ Calculating lat/lon from filtered GeoJSON stream...")
+    LOGGER.info("Calculating lat/lon from filtered GeoJSON stream...")
     try:
         # Process the file as a true stream, without loading into memory.
+        with open(geojson_path, 'rb') as f:
+            # Use ijson to stream features one by one.
+            parser = ijson.items(f, 'features.item')
+
+            for feature in tqdm(parser, desc="Processing features"):
+                geom_type = feature.get("geometry", {}).get("type")
+
+                #  Accept both Polygon and LineString
+                if not (feature.get("geometry") and geom_type in ("Polygon", "MultiPolygon",
+                                                                  "LineString", "MultiLineString")):
+                    continue
+
+                geom = shape(feature["geometry"])
+                props = feature["properties"]
+                osmium_id = feature.get("id")
+
+                try:
+                    _, osm_id = get_osm_id(osmium_id)
+                except ValueError as ve:
+                    LOGGER.warning("Skipping invalid ID %r: %s", osmium_id, ve)
+                    continue
+
+                name = props.get("name", "unknown")
+
+                # Helper handles both Polygons (Area) and Lines (Centroid)
+                area, centroid = compute_geometry_metrics(geom)
+
+                # if dupe, Keep the one with the largest area (Polygon wins over LineString)
+                if osm_id in unique_features:
+                    if area > unique_features[osm_id]['area']:
+                        # Overwrite with the better (polygon) version
+                        unique_features[osm_id] = {
+                            "name": name, "lat": f"{centroid.y:.5f}", "lon": f"{centroid.x:.5f}",
+                            "area": area
+                        }
+                else:
+                    unique_features[osm_id] = {
+                        "name": name, "lat": f"{centroid.y:.5f}", "lon": f"{centroid.x:.5f}",
+                        "area": area
+                    }
+
+        # Write final CSV
+        LOGGER.info("Output CSV: %s", args.output)
+
         with open(args.output, mode="w", newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(["name", "osm_id", "lat", "lon", "area"])
 
-            with open(geojson_path, 'rb') as f:
-                # Use ijson to stream features one by one.
-                parser = ijson.items(f, 'features.item')
-                # Wrap the parser in tqdm. It won't have a total, but it will
-                # show iteration speed and elapsed time, which is ideal for a stream.
-                for feature in tqdm(parser, desc="Processing features"):
-                    if not (feature.get("geometry") and
-                            feature["geometry"].get("type") in ("Polygon", "MultiPolygon")):
-                        continue
+            for osm_id, data in unique_features.items():
+                writer.writerow(
+                    [data['name'], osm_id, data['lat'], data['lon'], f"{data['area']:.2f}"])
 
-                    geom = shape(feature["geometry"])
-                    props = feature["properties"]
-                    osmium_id = feature.get("id")
-
-                    try:
-                        _, osm_id = get_osm_id(osmium_id)
-                    except ValueError as ve:
-                        print(f"⚠️  Skipping invalid ID '{osmium_id}': {ve}")
-                        continue
-
-                    name = props.get("name", "unknown")
-                    area, centroid = compute_area_centroid(geom)
-                    writer.writerow(
-                        [name, osm_id, f"{centroid.y:.5f}", f"{centroid.x:.5f}", f"{area:.2f}"]
-                    )
-
-        print(f"\n✅ CSV export complete: {args.output}")
+        LOGGER.info("CSV export complete: %s", args.output)
 
     except FileNotFoundError:
-        sys.exit(f"\n❌ Error: GeoJSON file not found at '{geojson_path}'.\n")
+        LOGGER.error("GeoJSON file not found: %s", geojson_path)
+        return 1
     except (ijson.JSONError, ValueError) as e:
-        sys.exit(f"\n❌ Error processing GeoJSON stream: {e}\n")
+        LOGGER.error("Error processing GeoJSON stream: %s", e)
+        return 1
+
+    return 0
 
 
 def create_filtered_geojson(geojson_path: Path, osm_path: Path, filter_map: dict) -> bool:
-    """
-    Creates a filtered GeoJSON file from a source OSM file using a two-stage
-    osmium pipeline for high performance.
-
-    1. `osmium tags-filter`: Pre-filters the large source PBF into a small,
-       intermediate PBF file containing only the desired features.
-    2. `osmium export`: Converts the small PBF file into the final GeoJSON
-       format, adding the unique IDs required for processing.
-
-    Args:
-        geojson_path (Path): The path for the final output GeoJSON file.
-        osm_path (Path): The path to the source OSM file (.pbf or .osm).
-        filter_map (dict): The filters to apply.
-
-    Returns:
-        bool: True if successful, False otherwise.
-    """
+    """Creates a filtered GeoJSON file using osmium."""
     if geojson_path.exists() and geojson_path.stat().st_mtime >= osm_path.stat().st_mtime:
-        print(f"✅ Filtered GeoJSON is up-to-date: {geojson_path}")
+        LOGGER.info("Filtered GeoJSON is up-to-date: %s", geojson_path)
         return True
 
-    print(f"🔄 Stale or missing GeoJSON.\n➡️ Generating filtered GeoJSON from {osm_path}...")
+    LOGGER.info("Stale or missing GeoJSON; generating from %s", osm_path)
 
     # --- Build a list of separate filter expressions ---
-    # The format is  ["w/key=v1,v2", "r/key=v1,v2", "w/key2=v3", "r/key2=v3"]
     osmium_filters = []
     for key, values in filter_map.items():
         if values:
             values_str = ",".join(values)
-            # Add a separate filter for ways and relations
+            # Add filter for ways and relations (Nodes usually don't need centroid calculation
+            # this way)
             osmium_filters.append(f"w/{key}={values_str}")
             osmium_filters.append(f"r/{key}={values_str}")
 
     if not osmium_filters:
-        print("⚠️ Warning: No filters defined. This may process a very large file.")
-        # Fallback to a generic area filter if no specific tags are provided
+        LOGGER.warning("No filters defined. This may process a very large file.")
         osmium_filter_expression = ["a/"]
     else:
         osmium_filter_expression = osmium_filters
 
     intermediate_pbf_path = geojson_path.with_suffix(".temp.pbf")
 
-    # The filter command now takes a list of filter expressions
-    filter_command = [
-        "osmium", "tags-filter", str(osm_path),
-        *osmium_filter_expression, # Unpack the list of filters here
-        "-o", str(intermediate_pbf_path), "--overwrite"
-    ]
+    filter_command = ["osmium", "tags-filter", str(osm_path), *osmium_filter_expression, "-o",
+        str(intermediate_pbf_path), "--overwrite"]
 
-    export_command = [
-        "osmium", "export", str(intermediate_pbf_path),
-        "-o", str(geojson_path), "--overwrite", "--add-unique-id=type_id"
-    ]
+    export_command = ["osmium", "export", str(intermediate_pbf_path), "-o", str(geojson_path),
+        "--overwrite", "--add-unique-id=type_id"]
 
     try:
-        print(f"   - Running filter command: {' '.join(filter_command)}")
+        LOGGER.debug("Running filter command: %s", " ".join(filter_command))
         subprocess.run(filter_command, check=True, capture_output=True, text=True)
 
-        print(f"   - Running export command: {' '.join(export_command)}")
+        LOGGER.debug("Running export command: %s", " ".join(export_command))
         subprocess.run(export_command, check=True, capture_output=True, text=True)
 
-        print(f"✅ Filtered GeoJSON export complete: {geojson_path}")
+        LOGGER.info("Filtered GeoJSON export complete: %s", geojson_path)
         return True
     except FileNotFoundError:
-        print("\n❌ Error: 'osmium' command not found. Please ensure it is installed and in your system's PATH.\n")
+        LOGGER.error("osmium command not found. Ensure it is installed and available on PATH.")
         return False
     except subprocess.CalledProcessError as e:
-        # Re-check which command failed to provide a more specific error.
-        # This logic needs to be more robust as the command list is now dynamic.
         if "tags-filter" in e.args:
             failed_command = "tags-filter"
         elif "export" in e.args:
             failed_command = "export"
         else:
             failed_command = " "
-        print(f"\n❌ Error running osmium '{failed_command}': {e}\n   ❌ Osmium stderr: {e.stderr.strip()}\n")
+        LOGGER.error("Error running osmium %r: %s", failed_command, e)
+        if e.stderr:
+            LOGGER.error("Osmium stderr: %s", e.stderr.strip())
         return False
     finally:
         if intermediate_pbf_path.exists():
             intermediate_pbf_path.unlink()
 
-# --- Utility functions  ---
-def compute_area_centroid(geometry):
+
+# --- Utility functions ---
+
+def compute_geometry_metrics(geometry):
+    """
+    Calculates centroid and area.
+    For Polygons: Returns projected Area.
+    For LineStrings: Returns 0.0 Area (Length is calculated but we return 0 for CSV consistency).
+    """
     if not geometry.is_valid:
         geometry = geometry.buffer(0)
+
     centroid = geometry.centroid
-    utm_zone = math.floor((centroid.x + 180) / 6) + 1
-    epsg_code = 32600 + utm_zone if centroid.y >= 0 else 32700 + utm_zone
-    transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{epsg_code}", always_xy=True)
-    projected_geometry = transform(transformer.transform, geometry)
-    area = projected_geometry.area
+
+    # Simple area check: Only calculate projected area for Polygons
+    if geometry.geom_type in ['Polygon', 'MultiPolygon']:
+        utm_zone = math.floor((centroid.x + 180) / 6) + 1
+        epsg_code = 32600 + utm_zone if centroid.y >= 0 else 32700 + utm_zone
+        transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{epsg_code}", always_xy=True)
+        projected_geometry = transform(transformer.transform, geometry)
+        area = projected_geometry.area
+    else:
+        # For Ways/Lines, area is effectively 0
+        area = 0.0
+
     return area, centroid
+
 
 def get_osm_id(osmium_id):
     if not osmium_id:
@@ -238,17 +242,18 @@ def get_osm_id(osmium_id):
         raise ValueError(f"Unrecognized prefix '{prefix}' in Osmium ID '{osmium_id}'")
 
 
-def print_filters(filter_map: dict):
-    # ... (This helper function is fine, no changes needed)
-    print("➡️  Applying the following OSM tag filters via osmium:")
+def log_filters(filter_map: dict) -> None:
+    """Log the configured OSM tag filters."""
+    LOGGER.info("Applying the following OSM tag filters via osmium:")
     if not filter_map:
-        print("   - No filters defined.")
+        LOGGER.info("   - No filters defined.")
         return
-    max_key_length = max(len(key) for key in filter_map.keys()) if filter_map else 0
+
+    max_key_length = max(len(key) for key in filter_map)
     for key, values in sorted(filter_map.items()):
         key_str = f"{key}:".ljust(max_key_length + 2)
-        values_str = ", ".join(sorted(list(values)))
-        print(f"   - {key_str}{values_str}")
+        values_str = ", ".join(sorted(values))
+        LOGGER.info("   - %s%s", key_str, values_str)
 
 
 if __name__ == "__main__":
