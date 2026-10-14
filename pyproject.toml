@@ -31,6 +31,10 @@ match-wikipedia = "ExtractOSM.wikipedia_match:main"
 geo-fuzzy-match = "ExtractOSM.geo_fuzzy_match:main"
 enrich-features = "ExtractOSM.enrich_features:main"
 spatial-match = "ExtractOSM.spatial_matcher.spatial_match:main"
+river-rasterize = "ExtractOSM.river_rasterize:main"
+extract-gpkg = "ExtractOSM.extract_gpkg:main"
+gpkg-calc = "ExtractOSM.gpkg_calc:main"
+
 
 [tool.setuptools]
 # include the  directory as a package in the distribution.

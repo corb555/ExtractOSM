@@ -2,9 +2,12 @@
 cache-wikipedia = ExtractOSM.wikipedia_cache:main
 calc-latlon = ExtractOSM.calc_latlon:main
 enrich-features = ExtractOSM.enrich_features:main
+extract-gpkg = ExtractOSM.extract_gpkg:main
 extract-osm = ExtractOSM.run_extract_osm:main
 geo-fuzzy-match = ExtractOSM.geo_fuzzy_match:main
+gpkg-calc = ExtractOSM.gpkg_calc:main
 match-wikipedia = ExtractOSM.wikipedia_match:main
 publish-osm = ExtractOSM.publish_osm:main
+river-rasterize = ExtractOSM.river_rasterize:main
 spatial-match = ExtractOSM.spatial_matcher.spatial_match:main
 wiki-categories = ExtractOSM.wiki_categories:main

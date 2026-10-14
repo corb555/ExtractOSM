@@ -365,6 +365,22 @@ def update_category_cache(
     return category_cache, fetched_count
 
 
+def write_marker_file(path: Path) -> None:
+    """Atomically create or refresh the profile-specific success marker."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+
+    try:
+        temp_path.write_text("", encoding="utf-8")
+        temp_path.replace(path)
+    except Exception:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=("Build/update wiki_categories.json from P31 IDs found in the Wikidata section "
@@ -379,6 +395,8 @@ def main() -> int:
         help="Contact email used in the Wikimedia User-Agent", )
     parser.add_argument("--language", default=DEFAULT_LANGUAGE,
         help=f"Wikidata label language (default: {DEFAULT_LANGUAGE})", )
+    parser.add_argument("--marker-file", type=Path, required=True,
+        help="Profile-specific marker file written after a successful cache update.", )
     parser.add_argument("-v", "--verbose", action="store_true",
         help="Enable verbose diagnostic logging.", )
     args = parser.parse_args()
@@ -401,6 +419,7 @@ def main() -> int:
             category_cache=category_cache, language=args.language, headers=headers, )
 
         cache_changed = save_category_cache(category_cache, args.category_cache)
+        write_marker_file(args.marker_file)
 
     except Exception as exc:
         LOGGER.error("ERROR: %s", exc)
@@ -412,6 +431,7 @@ def main() -> int:
         LOGGER.info("Saved: %s", args.category_cache)
     else:
         LOGGER.info("Unchanged: %s", args.category_cache)
+    LOGGER.info("Marker updated: %s", args.marker_file)
     return 0
 
 

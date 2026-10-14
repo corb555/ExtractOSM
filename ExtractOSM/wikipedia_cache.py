@@ -389,6 +389,22 @@ def load_lookup_preprocessing(config_path: Path) -> Dict[str, Any]:
     return {"augment_context": augment_context, "normalize_phrases": normalize_phrases}
 
 
+def write_marker_file(path: Path) -> None:
+    """Atomically create or refresh the profile-specific success marker."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+
+    try:
+        temp_path.write_text("", encoding="utf-8")
+        temp_path.replace(path)
+    except OSError as exc:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ValueError(f"Unable to write marker file {path}: {exc}") from exc
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Fetch  Wikipedia/Wikidata metadata into a shared JSON cache.")
@@ -403,6 +419,8 @@ def main() -> None:
     parser.add_argument("--wiki-col", default="wikipedia", help="Wikipedia tag column")
     parser.add_argument("--wikidata-col", default="wikidata", help="Wikidata tag column")
     parser.add_argument("--preprocessing-config", type=Path, help=f"Lookup preprocessing YAML ", )
+    parser.add_argument("--marker-file", type=Path,
+        help="Profile-specific marker file written after a successful cache update", )
     parser.add_argument("--dry-run", action="store_true",
         help="Show lookup preprocessing and API requests without HTTP or file writes", )
     parser.add_argument("--fallback-search", action="store_true",
@@ -414,6 +432,9 @@ def main() -> None:
         help="Normalize existing Wikipedia cache keys and save the migrated cache", )
     args = parser.parse_args()
     headers = {"User-Agent": f"{args.project} (Contact: {args.email})"}
+
+    if not args.migrate and not args.dry_run and args.marker_file is None:
+        parser.error("--marker-file is required for a normal cache update")
 
     # command to migrate cache
     if args.migrate:
@@ -603,6 +624,7 @@ def main() -> None:
             return
 
         save_cache(cache, args.cache_file)
+        write_marker_file(args.marker_file)
 
         wikipedia_entries = cache["wikipedia"]
         wikidata_entries = cache["wikidata"]
@@ -616,6 +638,7 @@ def main() -> None:
 
         job_elapsed = time.monotonic() - job_started
         print(f"\n✅ CacheWikipedia complete: {args.cache_file}")
+        print(f"   - Marker                       : {args.marker_file}")
         print(f"   - Wikipedia entries            : {wikipedia_count:,}")
         print(f"   - Wikidata entities            : {wikidata_count:,}")
         print(f"   - Disambiguation pages         : {disambiguation_count:,}")

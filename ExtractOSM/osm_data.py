@@ -12,6 +12,7 @@ MODE_FEATURE_VALUE = "value"
 MODE_ASIS = "asis"
 MODE_PRESENCE = "presence"
 VALID_MODES = {MODE_FEATURE_VALUE, MODE_ASIS, "score", MODE_PRESENCE}
+ALTERNATE_NAME = "name:en"
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ class OSMData:
         log_level (int): Verbosity of logging
     """
 
-    def __init__(self, configuration, file_paths: dict, debug_nodes: List[str]):
+    def __init__(self, configuration, file_paths: dict, debug_nodes: List[str], alternate_name=None):
         """
         Initializes OSMData.
 
@@ -46,10 +47,11 @@ class OSMData:
         self.core_columns = ["osm_id", "item_name", "lat", "lon", "osm_category", "sub_category"]
         self.debug_nodes = debug_nodes
         self.helper_log_level = 1 if LOGGER.isEnabledFor(logging.DEBUG) else 0
+        self.alternate_name = ALTERNATE_NAME if alternate_name is None else alternate_name
 
         self.require_name = configuration.get("require_name", True)
         if self.require_name:
-            LOGGER.info("Features without a 'name' tag will be dropped")
+            LOGGER.info(f"Features without a 'name'  or '{self.alternate_name}' tag will be dropped")
 
         self.text_replace = TextSubstitutions(file_paths["substitution"], self.helper_log_level)
         self.tag_counter = SignificantTagCounter(file_paths["ignore_tags"], debug_nodes,
@@ -89,7 +91,7 @@ class OSMData:
         # osm_id = str(n.id).strip()
 
         raw_osm_id = n.id
-        name = n.tags.get("name")
+        name = n.tags.get("name") or n.tags.get(self.alternate_name)
 
         if isinstance(n, osmium.osm.Relation):
             # If the object is a relation, negate the ID to match osm2pgsql.
@@ -99,8 +101,11 @@ class OSMData:
             osm_id = str(raw_osm_id)
 
         if self.require_name and not name:
-            self.node_dbg(osm_id, "Dropped because 'name' tag is missing.")
-            return  # do not add
+            self.node_dbg(
+                osm_id,
+                f"Dropped because neither 'name' nor '{self.alternate_name}' is present."
+            )
+            return
 
         lat = n.lat if isinstance(n, osmium.osm.Node) else 0.0
         lon = n.lon if isinstance(n, osmium.osm.Node) else 0.0
